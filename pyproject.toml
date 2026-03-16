@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "polymath_kinematics"
+version = "0.1.0"
+description = "Simple mixed C++/Python kinematics library"
+license = {text = "Apache-2.0"}
+maintainers = [
+    {name = "Polymath Robotics", email = "dev@polymathrobotics.com"}
+]
+requires-python = ">=3.8"
+
+[tool.setuptools]
+packages = ["polymath_kinematics"]
