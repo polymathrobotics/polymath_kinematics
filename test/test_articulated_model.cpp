@@ -151,4 +151,58 @@ TEST_CASE("ArticulatedModel bodyVelocityToVehicleState - straight line (v, 0) no
   CHECK(std::isinf(result.rear_axle_turning_radius_m));
 }
 
+TEST_CASE("ArticulatedModel bodyVelocityToVehicleState - reverse left turn")
+{
+  ArticulatedModel model(1.5, 1.2, 1.8, 1.6, 0.4, 0.5);
+
+  // Reversing (v < 0) + CCW yaw (omega > 0): articulation angle must be negative (joint bends right)
+  // |gamma| matches the forward case by symmetry: gamma = -0.6435011088
+  auto result = model.bodyVelocityToVehicleState(-2.0, 0.5);
+
+  CHECK(result.linear_velocity_m_s == Approx(-2.0));
+  CHECK(result.articulation_angle_rad == Approx(-0.6435011088));
+  CHECK(result.front_axle_turning_radius_m == Approx(-4.0));
+  CHECK(result.rear_axle_turning_radius_m == Approx(-4.1));
+
+  // All wheel speeds are negative (reversing)
+  CHECK(result.front_right_wheel_speed_rad_s < 0.0);
+  CHECK(result.front_left_wheel_speed_rad_s < 0.0);
+  CHECK(result.rear_right_wheel_speed_rad_s < 0.0);
+  CHECK(result.rear_left_wheel_speed_rad_s < 0.0);
+
+  // Right wheels are closer to ICR (smaller magnitude) than left wheels
+  CHECK(std::abs(result.front_right_wheel_speed_rad_s) < std::abs(result.front_left_wheel_speed_rad_s));
+  CHECK(std::abs(result.rear_right_wheel_speed_rad_s) < std::abs(result.rear_left_wheel_speed_rad_s));
+}
+
+TEST_CASE("ArticulatedModel bodyVelocityToVehicleState - reverse right turn")
+{
+  ArticulatedModel model(1.5, 1.2, 1.8, 1.6, 0.4, 0.5);
+
+  // Reversing (v < 0) + CW yaw (omega < 0): articulation angle must be positive (joint bends left)
+  auto result = model.bodyVelocityToVehicleState(-2.0, -0.5);
+
+  CHECK(result.linear_velocity_m_s == Approx(-2.0));
+  CHECK(result.articulation_angle_rad == Approx(0.6435011088));
+
+  // All wheel speeds are negative (reversing)
+  CHECK(result.front_right_wheel_speed_rad_s < 0.0);
+  CHECK(result.front_left_wheel_speed_rad_s < 0.0);
+  CHECK(result.rear_right_wheel_speed_rad_s < 0.0);
+  CHECK(result.rear_left_wheel_speed_rad_s < 0.0);
+}
+
+TEST_CASE("ArticulatedModel roundtrip reverse - bodyVelocityToVehicleState to articulationToAxleVelocities")
+{
+  ArticulatedModel model(1.5, 1.2, 1.8, 1.6, 0.4, 0.5);
+
+  double linear_velocity = -2.0;
+  double angular_velocity = 0.5;
+
+  auto vehicle_state = model.bodyVelocityToVehicleState(linear_velocity, angular_velocity);
+  auto axle_vel = model.articulationToAxleVelocities(linear_velocity, vehicle_state.articulation_angle_rad);
+
+  CHECK(axle_vel.front_axle_turning_velocity_rad_s == Approx(angular_velocity).margin(1e-6));
+}
+
 }  // namespace polymath::kinematics

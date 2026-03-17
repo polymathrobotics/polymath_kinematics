@@ -31,9 +31,9 @@ This follows from the geometry: the rear axle center traces a circle of radius $
 
 Invert the forward relation:
 
-$$\delta = \operatorname{atan2}(\omega \cdot L,\; v)$$
+$$\delta = \arctan\!\left(\frac{\omega \cdot L}{v}\right)$$
 
-$\operatorname{atan2}$ is used instead of $\arctan(\omega L / v)$ to handle all quadrants correctly, including reverse motion.
+$\arctan$ (not $\operatorname{atan2}$) is used intentionally: the result must lie in $(-\pi/2,\, \pi/2)$, which is the physically valid range for a steering angle. $\operatorname{atan2}(\omega L, v)$ would add $\pm\pi$ when $v < 0$, placing $\delta$ in the wrong quadrant during reverse motion.
 
 ### Turning radius
 
@@ -90,5 +90,4 @@ $$\omega_{\text{fr}} = \frac{\omega \cdot \operatorname{copysign}\!\left(\sqrt{(
 | $\|R\| < W/2$ | ICR between rear wheels. Inner wheel reverses direction (handled by $\operatorname{copysign}$) |
 
 ## Future Work
-
 Add diagrams to the readme for visualization

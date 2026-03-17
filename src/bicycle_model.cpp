@@ -47,9 +47,12 @@ BicycleSteeringState BicycleModel::bodyVelocityToSteering(double linear_velocity
       wheel_rad_s};
   }
 
-  // steering_angle = atan2(omega * L, v) inverts the forward kinematic
-  // relation omega = v * tan(steering_angle) / L
-  double steering_angle = std::atan2(angular_velocity * wheelbase_m_, linear_velocity);
+  // steering_angle = atan(omega * L / v) inverts the forward kinematic
+  // relation omega = v * tan(steering_angle) / L.
+  // atan (not atan2) is intentional: the result must stay in (-pi/2, pi/2),
+  // which is the valid physical range for a steering angle. atan2 would add
+  // +/-pi when v < 0, placing the result in the wrong quadrant for reverse.
+  double steering_angle = std::atan(angular_velocity * wheelbase_m_ / linear_velocity);
   double turning_radius = turningRadius(steering_angle);
   double half_track = track_width_m_ / 2.0;
 
