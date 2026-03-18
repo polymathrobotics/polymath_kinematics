@@ -57,14 +57,8 @@ ArticulatedVehicleState ArticulatedModel::bodyVelocityToVehicleState(
     articulation_to_rear_axle_m_ * (articulation_turning_velocity_rad_s_ - angular_velocity_rad_s) /
     std::hypot(angular_velocity_rad_s * articulation_to_front_axle_m_, linear_velocity_m_s));
 
-  double articulation_angle =
-    std::copysign(
-      std::acos(
-        articulation_to_rear_axle_m_ * (articulation_turning_velocity_rad_s_ - angular_velocity_rad_s) /
-        std::sqrt(
-          square(angular_velocity_rad_s) * square(articulation_to_front_axle_m_) + square(linear_velocity_m_s))),
-      linear_velocity_m_s) -
-    std::atan2(linear_velocity_m_s, angular_velocity_rad_s * articulation_to_front_axle_m_);
+  double atan2_calculation = std::atan2(linear_velocity_m_s, angular_velocity_rad_s * articulation_to_front_axle_m_);
+  double articulation_angle = std::copysign(acos_calculation, linear_velocity_m_s) - atan2_calculation;
 
   double cos_articulation = std::cos(articulation_angle);
   double sin_articulation = std::sin(articulation_angle);
