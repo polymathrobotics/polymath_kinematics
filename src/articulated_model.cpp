@@ -53,6 +53,10 @@ ArticulatedVehicleState ArticulatedModel::bodyVelocityToVehicleState(
   }
 
   // copysign selects + for forward, - for reverse.
+  double acos_calculation = std::acos(
+    articulation_to_rear_axle_m_ * (articulation_turning_velocity_rad_s_ - angular_velocity_rad_s) /
+    std::hypot(angular_velocity_rad_s * articulation_to_front_axle_m_, linear_velocity_m_s));
+
   double articulation_angle =
     std::copysign(
       std::acos(
