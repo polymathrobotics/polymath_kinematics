@@ -52,11 +52,7 @@ ArticulatedVehicleState ArticulatedModel::bodyVelocityToVehicleState(
       std::numeric_limits<double>::infinity()};
   }
 
-  // The harmonic-addition inversion of eq. (12) yields two solutions:
-  //   gamma + phi = +/-arccos(Lr*(gamma_dot - omega) / R)
-  // For v > 0, phi = atan2(v, omega*Lf) > 0 and the + branch gives the
-  // small physical angle. For v < 0, phi is negative and the + branch
-  // pushes gamma toward +/-pi. copysign selects + for forward, - for reverse.
+  // copysign selects + for forward, - for reverse.
   double articulation_angle =
     std::copysign(
       std::acos(

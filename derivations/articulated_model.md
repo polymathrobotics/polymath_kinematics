@@ -136,7 +136,7 @@ With $\dot{\gamma} = 0$ (current implementation):
 
 $$\gamma = \operatorname{sign}(v)\cdot\arccos\!\left(\frac{-L_r\,\omega}{\sqrt{\omega^2 L_f^2 + v^2}}\right) - \operatorname{atan2}(v,\; \omega\, L_f) \tag{14}$$
 
-> **Branch selection:** The cosine inversion $\cos(\gamma+\phi) = c$ has two solutions $\gamma = \pm\arccos(c) - \phi$. For $v > 0$, $\phi = \operatorname{atan2}(v, \omega L_f) > 0$ and the $+$ branch yields the small physical angle. For $v < 0$, $\phi$ is negative and the $+$ branch pushes $\gamma$ near $\pm\pi$; the $-$ branch recovers the correct small angle. Hence $\operatorname{sign}(v)$ selects the appropriate branch in both directions.
+> **Branch selection:** The cosine inversion $\cos(\gamma+\phi) = c$ has two solutions $\gamma = \pm\arccos(c) - \phi$. $\operatorname{sign}(v)$ selects the appropriate branch in both directions.
 ---
 
 ## Turning radii
