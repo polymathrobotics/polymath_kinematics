@@ -20,11 +20,6 @@
 namespace polymath::kinematics
 {
 
-constexpr inline double square(double x)
-{
-  return x * x;
-}
-
 ArticulatedVehicleState ArticulatedModel::bodyVelocityToVehicleState(
   double linear_velocity_m_s, double angular_velocity_rad_s)
 {
