@@ -277,4 +277,56 @@ TEST_CASE("BicycleModel roundtrip - negative steering angle")
   CHECK(steering.steering_angle_rad == Approx(steering_angle));
 }
 
+TEST_CASE("BicycleModel bodyVelocityToSteering - reverse left turn")
+{
+  BicycleModel model(2.5, 1.5, 0.3);
+
+  // Reversing (v < 0) + CCW body rotation (omega > 0): front wheels must steer RIGHT (delta < 0)
+  // delta = atan(2.0 * 2.5 / -5.0) = atan(-1) = -pi/4
+  auto result = model.bodyVelocityToSteering(-5.0, 2.0);
+
+  CHECK(result.velocity_m_s == Approx(-5.0));
+  CHECK(result.steering_angle_rad == Approx(-M_PI / 4));
+  CHECK(result.turning_radius_m == Approx(-2.5));
+
+  // All wheels move backward
+  CHECK(result.rear_left_wheel_rad_s < 0.0);
+  CHECK(result.rear_right_wheel_rad_s < 0.0);
+  CHECK(result.front_left_wheel_rad_s < 0.0);
+  CHECK(result.front_right_wheel_rad_s < 0.0);
+}
+
+TEST_CASE("BicycleModel bodyVelocityToSteering - reverse right turn")
+{
+  BicycleModel model(2.5, 1.5, 0.3);
+
+  // Reversing (v < 0) + CW body rotation (omega < 0): front wheels must steer LEFT (delta > 0)
+  // delta = atan(-2.0 * 2.5 / -5.0) = atan(1) = pi/4
+  auto result = model.bodyVelocityToSteering(-5.0, -2.0);
+
+  CHECK(result.velocity_m_s == Approx(-5.0));
+  CHECK(result.steering_angle_rad == Approx(M_PI / 4));
+  CHECK(result.turning_radius_m == Approx(2.5));
+
+  // All wheels move backward
+  CHECK(result.rear_left_wheel_rad_s < 0.0);
+  CHECK(result.rear_right_wheel_rad_s < 0.0);
+  CHECK(result.front_left_wheel_rad_s < 0.0);
+  CHECK(result.front_right_wheel_rad_s < 0.0);
+}
+
+TEST_CASE("BicycleModel roundtrip - reverse velocity")
+{
+  BicycleModel model(2.5, 1.5, 0.3);
+
+  double velocity = -3.0;
+  double steering_angle = -0.3;  // Right steer while reversing
+
+  auto body_vel = model.steeringToBodyVelocity(velocity, steering_angle);
+  auto steering = model.bodyVelocityToSteering(body_vel.linear_velocity_m_s, body_vel.angular_velocity_rad_s);
+
+  CHECK(steering.velocity_m_s == Approx(velocity));
+  CHECK(steering.steering_angle_rad == Approx(steering_angle));
+}
+
 }  // namespace polymath::kinematics

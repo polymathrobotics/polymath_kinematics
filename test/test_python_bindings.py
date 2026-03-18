@@ -82,6 +82,24 @@ class TestBicycleModel:
         assert steering.velocity_m_s == pytest.approx(velocity)
         assert steering.steering_angle_rad == pytest.approx(steering_angle)
 
+    def test_reverse_turning(self):
+        model = BicycleModel(2.5, 1.5, 0.3)
+        # Reversing with CCW body rotation → front wheels steer RIGHT (negative delta)
+        result = model.body_velocity_to_steering(-5.0, 2.0)
+        assert result.velocity_m_s == pytest.approx(-5.0)
+        assert result.steering_angle_rad == pytest.approx(-math.pi / 4)
+
+    def test_reverse_roundtrip(self):
+        model = BicycleModel(2.5, 1.5, 0.3)
+        velocity = -3.0
+        steering_angle = -0.3
+
+        body_vel = model.steering_to_body_velocity(velocity, steering_angle)
+        steering = model.body_velocity_to_steering(body_vel.linear_velocity_m_s, body_vel.angular_velocity_rad_s)
+
+        assert steering.velocity_m_s == pytest.approx(velocity)
+        assert steering.steering_angle_rad == pytest.approx(steering_angle)
+
 
 class TestArticulatedModel:
     def test_construction(self):
@@ -107,3 +125,19 @@ class TestArticulatedModel:
 
         assert result.linear_velocity_m_s == pytest.approx(2.0)
         assert result.front_axle_turning_velocity_rad_s == pytest.approx(0.2244737375)
+
+    def test_reverse_turning(self):
+        model = ArticulatedModel(1.5, 1.2, 1.8, 1.6, 0.4, 0.5)
+        # Reversing (v < 0) + CCW yaw → articulation angle negative (mirrors forward case)
+        result = model.body_velocity_to_vehicle_state(-2.0, 0.5)
+        assert result.articulation_angle_rad == pytest.approx(-0.6435011088)
+
+    def test_reverse_roundtrip(self):
+        model = ArticulatedModel(1.5, 1.2, 1.8, 1.6, 0.4, 0.5)
+        linear_velocity = -2.0
+        angular_velocity = 0.5
+
+        vehicle_state = model.body_velocity_to_vehicle_state(linear_velocity, angular_velocity)
+        axle_vel = model.articulation_to_axle_velocities(linear_velocity, vehicle_state.articulation_angle_rad)
+
+        assert axle_vel.front_axle_turning_velocity_rad_s == pytest.approx(angular_velocity, abs=1e-6)

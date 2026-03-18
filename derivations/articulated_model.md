@@ -130,12 +130,13 @@ $$\cos(\gamma + \phi) = \frac{L_r(\dot{\gamma} - \omega)}{\sqrt{\omega^2 L_f^2 +
 
 $$\gamma + \phi = \arccos\!\left(\frac{L_r(\dot{\gamma} - \omega)}{\sqrt{\omega^2 L_f^2 + v^2}}\right)$$
 
-$$\boxed{\gamma = \arccos\!\left(\frac{L_r\,(\dot{\gamma} - \omega)}{\sqrt{\omega^2 L_f^2 + v^2}}\right) - \operatorname{atan2}(v,\; \omega\, L_f)} \tag{13}$$
+$$\boxed{\gamma = \operatorname{sign}(v)\cdot\arccos\!\left(\frac{L_r\,(\dot{\gamma} - \omega)}{\sqrt{\omega^2 L_f^2 + v^2}}\right) - \operatorname{atan2}(v,\; \omega\, L_f)} \tag{13}$$
 
 With $\dot{\gamma} = 0$ (current implementation):
 
-$$\gamma = \arccos\!\left(\frac{-L_r\,\omega}{\sqrt{\omega^2 L_f^2 + v^2}}\right) - \operatorname{atan2}(v,\; \omega\, L_f) \tag{14}$$
+$$\gamma = \operatorname{sign}(v)\cdot\arccos\!\left(\frac{-L_r\,\omega}{\sqrt{\omega^2 L_f^2 + v^2}}\right) - \operatorname{atan2}(v,\; \omega\, L_f) \tag{14}$$
 
+> **Branch selection:** The cosine inversion $\cos(\gamma+\phi) = c$ has two solutions $\gamma = \pm\arccos(c) - \phi$. $\operatorname{sign}(v)$ selects the appropriate branch in both directions.
 ---
 
 ## Turning radii
