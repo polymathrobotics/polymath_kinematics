@@ -69,7 +69,14 @@ BicycleSteeringState BicycleModel::bodyVelocityToSteering(double linear_velocity
   double front_left_rad_s = angular_velocity * front_left_r / wheel_radius_m_;
   double front_right_rad_s = angular_velocity * front_right_r / wheel_radius_m_;
 
-  return BicycleSteeringState{linear_velocity, steering_angle, turning_radius, front_right_rad_s, front_left_rad_s, rear_right_rad_s, rear_left_rad_s};
+  return BicycleSteeringState{
+    linear_velocity,
+    steering_angle,
+    turning_radius,
+    front_right_rad_s,
+    front_left_rad_s,
+    rear_right_rad_s,
+    rear_left_rad_s};
 }
 
 double BicycleModel::turningRadius(double steering_angle)
