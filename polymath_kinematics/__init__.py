@@ -17,21 +17,30 @@ import math
 from polymath_kinematics_cpp import (
     ArticulatedAxleVelocities,
     ArticulatedModel,
+    ArticulatedProjectedState,
+    ArticulatedProjector,
     ArticulatedVehicleState,
     BicycleBodyVelocity,
     BicycleModel,
+    BicycleProjectedState,
+    BicycleProjector,
     BicycleSteeringState,
     DifferentialDriveBodyVelocity,
     DifferentialDriveModel,
     DifferentialDriveWheelVelocities,
+    Pose2D,
 )
 
 __all__ = [
     'ArticulatedAxleVelocities',
     'ArticulatedModel',
+    'ArticulatedProjectedState',
+    'ArticulatedProjector',
     'ArticulatedVehicleState',
     'BicycleBodyVelocity',
     'BicycleModel',
+    'BicycleProjectedState',
+    'BicycleProjector',
     'BicycleSteeringState',
     'DifferentialDriveBodyVelocity',
     'DifferentialDriveModel',
@@ -41,13 +50,6 @@ __all__ = [
     'normalize_angle',
     'transform_pose',
 ]
-
-
-class Pose2D:
-    def __init__(self, x=0.0, y=0.0, theta=0.0):
-        self.x = x
-        self.y = y
-        self.theta = theta
 
 
 class Twist2D:

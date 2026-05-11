@@ -53,8 +53,10 @@ find_package(pybind11 REQUIRED)
 # C++ library with all kinematic models
 add_library(polymath_kinematics SHARED
   src/articulated_model.cpp
+  src/articulated_projector.cpp
   src/differential_drive_model.cpp
   src/bicycle_model.cpp
+  src/bicycle_projector.cpp
 )
 target_include_directories(polymath_kinematics PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -118,6 +120,8 @@ if(BUILD_TESTING)
   add_kinematics_catch2_test(test_differential_drive test/test_differential_drive.cpp)
   add_kinematics_catch2_test(test_bicycle_model test/test_bicycle_model.cpp)
   add_kinematics_catch2_test(test_articulated_model test/test_articulated_model.cpp)
+  add_kinematics_catch2_test(test_bicycle_projector test/test_bicycle_projector.cpp)
+  add_kinematics_catch2_test(test_articulated_projector test/test_articulated_projector.cpp)
   ament_add_pytest_test(test_python_bindings test)
 endif()
 
