@@ -227,9 +227,7 @@ TEST_CASE("ArticulatedModel articulationToAxleVelocities - nonzero rate adds gam
   auto rest = model.articulationToAxleVelocities(2.0, 0.3, 0.0);
   auto with_rate = model.articulationToAxleVelocities(2.0, 0.3, gamma_dot);
 
-  CHECK(
-    with_rate.front_axle_turning_velocity_rad_s - with_rate.rear_axle_turning_velocity_rad_s ==
-    Approx(gamma_dot));
+  CHECK(with_rate.front_axle_turning_velocity_rad_s - with_rate.rear_axle_turning_velocity_rad_s == Approx(gamma_dot));
   CHECK(with_rate.front_axle_turning_velocity_rad_s != Approx(rest.front_axle_turning_velocity_rad_s));
 }
 

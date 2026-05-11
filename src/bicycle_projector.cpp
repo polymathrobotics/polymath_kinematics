@@ -16,6 +16,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <vector>
 
 namespace polymath::kinematics
 {
@@ -30,8 +31,7 @@ BicycleProjectedState BicycleProjector::step(
 {
   // Clamp target into the actuator's bounds before ramping, so out-of-range commands
   // saturate at the limit rather than oscillating or overshooting.
-  double clamped_target =
-    std::clamp(target_steering_angle_rad, min_steering_angle_rad_, max_steering_angle_rad_);
+  double clamped_target = std::clamp(target_steering_angle_rad, min_steering_angle_rad_, max_steering_angle_rad_);
 
   // Slew toward the clamped target at |rate| per second, never overshooting.
   double max_delta = std::abs(steering_rate_rad_s) * dt_s;
@@ -54,12 +54,7 @@ BicycleProjectedState BicycleProjector::step(
     normalizeAngle(current_pose.theta + body_vel.angular_velocity_rad_s * dt_s)};
 
   return BicycleProjectedState{
-    dt_s,
-    new_pose,
-    new_steering_angle_rad,
-    linear_velocity_m_s,
-    body_vel.angular_velocity_rad_s,
-    inner};
+    dt_s, new_pose, new_steering_angle_rad, linear_velocity_m_s, body_vel.angular_velocity_rad_s, inner};
 }
 
 std::vector<BicycleProjectedState> BicycleProjector::project(
@@ -78,8 +73,7 @@ std::vector<BicycleProjectedState> BicycleProjector::project(
 
   // Seed element 0 with the initial state so plots have a clean t=0 anchor.
   // Populate the steering_state field by running inverse kinematics on the implied omega.
-  BicycleBodyVelocity initial_body =
-    model_.steeringToBodyVelocity(linear_velocity_m_s, initial_steering_angle_rad);
+  BicycleBodyVelocity initial_body = model_.steeringToBodyVelocity(linear_velocity_m_s, initial_steering_angle_rad);
   BicycleSteeringState initial_inner =
     model_.bodyVelocityToSteering(linear_velocity_m_s, initial_body.angular_velocity_rad_s);
   trajectory.push_back(BicycleProjectedState{
@@ -96,8 +90,8 @@ std::vector<BicycleProjectedState> BicycleProjector::project(
   Pose2D pose = initial_pose;
   double steering_angle = initial_steering_angle_rad;
   for (std::size_t i = 0; i < n_steps; ++i) {
-    BicycleProjectedState s = step(
-      dt_s, pose, steering_angle, target_steering_angle_rad, steering_rate_rad_s, linear_velocity_m_s);
+    BicycleProjectedState s =
+      step(dt_s, pose, steering_angle, target_steering_angle_rad, steering_rate_rad_s, linear_velocity_m_s);
     s.time_s = static_cast<double>(i + 1) * dt_s;
     pose = s.pose;
     steering_angle = s.steering_angle_rad;

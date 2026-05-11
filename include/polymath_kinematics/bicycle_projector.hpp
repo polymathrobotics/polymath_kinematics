@@ -34,12 +34,12 @@ namespace polymath::kinematics
 /// @brief One sample of a bicycle-model projection: pose + steering + wheel speeds at a point in time.
 struct BicycleProjectedState
 {
-  double time_s;                          ///< Elapsed time from the start of the projection
-  Pose2D pose;                            ///< Body pose at this sample
-  double steering_angle_rad;              ///< Post-ramp steering angle in radians
-  double linear_velocity_m_s;             ///< Commanded linear velocity in m/s
-  double angular_velocity_rad_s;          ///< Body angular velocity used for theta integration
-  BicycleSteeringState steering_state;    ///< Full kinematic snapshot (wheel speeds + turning radius)
+  double time_s;  ///< Elapsed time from the start of the projection
+  Pose2D pose;  ///< Body pose at this sample
+  double steering_angle_rad;  ///< Post-ramp steering angle in radians
+  double linear_velocity_m_s;  ///< Commanded linear velocity in m/s
+  double angular_velocity_rad_s;  ///< Body angular velocity used for theta integration
+  BicycleSteeringState steering_state;  ///< Full kinematic snapshot (wheel speeds + turning radius)
 };
 
 /// @brief Forward-projection wrapper around BicycleModel that ramps steering toward a target at
@@ -51,10 +51,7 @@ public:
   /// @param model Bicycle kinematics model (stored by value)
   /// @param min_steering_angle_rad Minimum allowed steering angle (typically negative)
   /// @param max_steering_angle_rad Maximum allowed steering angle (typically positive)
-  BicycleProjector(
-    BicycleModel model,
-    double min_steering_angle_rad,
-    double max_steering_angle_rad)
+  BicycleProjector(BicycleModel model, double min_steering_angle_rad, double max_steering_angle_rad)
   : model_(model)
   , min_steering_angle_rad_(min_steering_angle_rad)
   , max_steering_angle_rad_(max_steering_angle_rad)

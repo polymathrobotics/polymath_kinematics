@@ -153,9 +153,7 @@ class TestArticulatedModel:
         assert no_arg.front_axle_turning_velocity_rad_s == pytest.approx(
             explicit_zero.front_axle_turning_velocity_rad_s
         )
-        assert no_arg.rear_axle_turning_velocity_rad_s == pytest.approx(
-            explicit_zero.rear_axle_turning_velocity_rad_s
-        )
+        assert no_arg.rear_axle_turning_velocity_rad_s == pytest.approx(explicit_zero.rear_axle_turning_velocity_rad_s)
 
     def test_axle_velocities_nonzero_rate_changes_rear(self):
         model = ArticulatedModel(1.5, 1.2, 1.8, 1.6, 0.4, 0.5)

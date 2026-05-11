@@ -27,9 +27,7 @@ ArticulatedVehicleState ArticulatedModel::bodyVelocityToVehicleState(
 }
 
 ArticulatedVehicleState ArticulatedModel::bodyVelocityToVehicleState(
-  double linear_velocity_m_s,
-  double angular_velocity_rad_s,
-  double articulation_turning_velocity_rad_s)
+  double linear_velocity_m_s, double angular_velocity_rad_s, double articulation_turning_velocity_rad_s)
 {
   // Guard: fully stationary — sqrt denominator collapses to 0, producing 0/0 = NaN
   if (
@@ -98,9 +96,7 @@ ArticulatedAxleVelocities ArticulatedModel::articulationToAxleVelocities(
 }
 
 ArticulatedAxleVelocities ArticulatedModel::articulationToAxleVelocities(
-  double linear_velocity_m_s,
-  double articulation_angle_rad,
-  double articulation_turning_velocity_rad_s)
+  double linear_velocity_m_s, double articulation_angle_rad, double articulation_turning_velocity_rad_s)
 {
   double front_axle_turning_velocity =
     (linear_velocity_m_s * std::sin(articulation_angle_rad) +
