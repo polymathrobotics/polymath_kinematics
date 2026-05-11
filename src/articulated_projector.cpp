@@ -16,6 +16,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <vector>
 
 namespace polymath::kinematics
 {
@@ -29,8 +30,8 @@ ArticulatedProjectedState ArticulatedProjector::step(
   double linear_velocity_m_s)
 {
   // Clamp target into the joint's mechanical bounds before ramping.
-  double clamped_target = std::clamp(
-    target_articulation_angle_rad, min_articulation_angle_rad_, max_articulation_angle_rad_);
+  double clamped_target =
+    std::clamp(target_articulation_angle_rad, min_articulation_angle_rad_, max_articulation_angle_rad_);
 
   // Slew toward the clamped target at |rate| per second, never overshooting.
   double max_delta = std::abs(articulation_rate_rad_s) * dt_s;
@@ -48,8 +49,8 @@ ArticulatedProjectedState ArticulatedProjector::step(
   double angular_velocity_rad_s = axle.rear_axle_turning_velocity_rad_s;
 
   // Full vehicle state (wheel speeds + turning radii) for the snapshot.
-  ArticulatedVehicleState inner = model_.bodyVelocityToVehicleState(
-    linear_velocity_m_s, angular_velocity_rad_s, actual_articulation_rate_rad_s);
+  ArticulatedVehicleState inner =
+    model_.bodyVelocityToVehicleState(linear_velocity_m_s, angular_velocity_rad_s, actual_articulation_rate_rad_s);
 
   // Euler pose update (heading taken at start of step).
   Pose2D new_pose{
@@ -58,12 +59,7 @@ ArticulatedProjectedState ArticulatedProjector::step(
     normalizeAngle(current_pose.theta + angular_velocity_rad_s * dt_s)};
 
   return ArticulatedProjectedState{
-    dt_s,
-    new_pose,
-    new_articulation_angle_rad,
-    linear_velocity_m_s,
-    angular_velocity_rad_s,
-    inner};
+    dt_s, new_pose, new_articulation_angle_rad, linear_velocity_m_s, angular_velocity_rad_s, inner};
 }
 
 std::vector<ArticulatedProjectedState> ArticulatedProjector::project(
@@ -84,15 +80,9 @@ std::vector<ArticulatedProjectedState> ArticulatedProjector::project(
   ArticulatedAxleVelocities initial_axle =
     model_.articulationToAxleVelocities(linear_velocity_m_s, initial_articulation_angle_rad);
   double initial_omega = initial_axle.rear_axle_turning_velocity_rad_s;
-  ArticulatedVehicleState initial_inner =
-    model_.bodyVelocityToVehicleState(linear_velocity_m_s, initial_omega);
+  ArticulatedVehicleState initial_inner = model_.bodyVelocityToVehicleState(linear_velocity_m_s, initial_omega);
   trajectory.push_back(ArticulatedProjectedState{
-    0.0,
-    initial_pose,
-    initial_articulation_angle_rad,
-    linear_velocity_m_s,
-    initial_omega,
-    initial_inner});
+    0.0, initial_pose, initial_articulation_angle_rad, linear_velocity_m_s, initial_omega, initial_inner});
 
   std::size_t n_steps = static_cast<std::size_t>(std::ceil(horizon_s / dt_s));
   trajectory.reserve(n_steps + 1);
@@ -100,9 +90,8 @@ std::vector<ArticulatedProjectedState> ArticulatedProjector::project(
   Pose2D pose = initial_pose;
   double articulation_angle = initial_articulation_angle_rad;
   for (std::size_t i = 0; i < n_steps; ++i) {
-    ArticulatedProjectedState s = step(
-      dt_s, pose, articulation_angle, target_articulation_angle_rad, articulation_rate_rad_s,
-      linear_velocity_m_s);
+    ArticulatedProjectedState s =
+      step(dt_s, pose, articulation_angle, target_articulation_angle_rad, articulation_rate_rad_s, linear_velocity_m_s);
     s.time_s = static_cast<double>(i + 1) * dt_s;
     pose = s.pose;
     articulation_angle = s.articulation_angle_rad;

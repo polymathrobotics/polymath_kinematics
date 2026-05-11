@@ -80,9 +80,7 @@ public:
   /// @param articulation_turning_velocity_rad_s Rate of change of the articulation angle in rad/s
   /// @return Vehicle state including required articulation angle and wheel speeds
   ArticulatedVehicleState bodyVelocityToVehicleState(
-    double linear_velocity_m_s,
-    double angular_velocity_rad_s,
-    double articulation_turning_velocity_rad_s);
+    double linear_velocity_m_s, double angular_velocity_rad_s, double articulation_turning_velocity_rad_s);
 
   /// @brief Convert articulation state to axle turning velocities
   /// Convenience overload that assumes a zero articulation turning velocity (steady articulation).
@@ -97,9 +95,7 @@ public:
   /// @param articulation_turning_velocity_rad_s Rate of change of the articulation angle in rad/s
   /// @return Axle turning velocities for front and rear axles
   ArticulatedAxleVelocities articulationToAxleVelocities(
-    double linear_velocity_m_s,
-    double articulation_angle_rad,
-    double articulation_turning_velocity_rad_s);
+    double linear_velocity_m_s, double articulation_angle_rad, double articulation_turning_velocity_rad_s);
 
   double get_articulation_to_front_axle_m() const
   {

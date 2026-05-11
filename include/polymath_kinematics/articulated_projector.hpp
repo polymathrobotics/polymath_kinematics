@@ -32,12 +32,12 @@ namespace polymath::kinematics
 /// @brief One sample of an articulated-model projection. Pose is tracked at the rear segment.
 struct ArticulatedProjectedState
 {
-  double time_s;                           ///< Elapsed time from the start of the projection
-  Pose2D pose;                             ///< Rear-segment pose at this sample
-  double articulation_angle_rad;           ///< Post-ramp articulation angle (gamma) in radians
-  double linear_velocity_m_s;              ///< Commanded linear velocity in m/s
-  double angular_velocity_rad_s;           ///< Rear-axle turning rate used for theta integration
-  ArticulatedVehicleState vehicle_state;   ///< Full kinematic snapshot (wheel speeds + turning radii)
+  double time_s;  ///< Elapsed time from the start of the projection
+  Pose2D pose;  ///< Rear-segment pose at this sample
+  double articulation_angle_rad;  ///< Post-ramp articulation angle (gamma) in radians
+  double linear_velocity_m_s;  ///< Commanded linear velocity in m/s
+  double angular_velocity_rad_s;  ///< Rear-axle turning rate used for theta integration
+  ArticulatedVehicleState vehicle_state;  ///< Full kinematic snapshot (wheel speeds + turning radii)
 };
 
 /// @brief Forward-projection wrapper around ArticulatedModel. Ramps articulation angle (gamma)
@@ -50,10 +50,7 @@ public:
   /// @param model Articulated kinematics model (stored by value)
   /// @param min_articulation_angle_rad Minimum allowed articulation angle (typically negative)
   /// @param max_articulation_angle_rad Maximum allowed articulation angle (typically positive)
-  ArticulatedProjector(
-    ArticulatedModel model,
-    double min_articulation_angle_rad,
-    double max_articulation_angle_rad)
+  ArticulatedProjector(ArticulatedModel model, double min_articulation_angle_rad, double max_articulation_angle_rad)
   : model_(model)
   , min_articulation_angle_rad_(min_articulation_angle_rad)
   , max_articulation_angle_rad_(max_articulation_angle_rad)
