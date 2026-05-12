@@ -17,6 +17,7 @@
 #include "polymath_kinematics/bicycle_model.hpp"
 #include "polymath_kinematics/bicycle_projector.hpp"
 #include "polymath_kinematics/differential_drive_model.hpp"
+#include "polymath_kinematics/differential_drive_projector.hpp"
 #include "polymath_kinematics/pose2d.hpp"
 #include "pybind11/pybind11.h"
 #include "pybind11/stl.h"
@@ -226,6 +227,53 @@ PYBIND11_MODULE(polymath_kinematics_cpp, m)
     .def_property_readonly("model", &ArticulatedProjector::get_model, py::return_value_policy::reference_internal)
     .def_property_readonly("min_articulation_angle_rad", &ArticulatedProjector::get_min_articulation_angle_rad)
     .def_property_readonly("max_articulation_angle_rad", &ArticulatedProjector::get_max_articulation_angle_rad);
+
+  // Differential drive projector bindings
+  py::class_<DifferentialDriveProjectedState>(m, "DifferentialDriveProjectedState")
+    .def(py::init<>())
+    .def_readwrite("time_s", &DifferentialDriveProjectedState::time_s)
+    .def_readwrite("pose", &DifferentialDriveProjectedState::pose)
+    .def_readwrite("linear_velocity_m_s", &DifferentialDriveProjectedState::linear_velocity_m_s)
+    .def_readwrite("angular_velocity_rad_s", &DifferentialDriveProjectedState::angular_velocity_rad_s)
+    .def_readwrite("wheel_velocities", &DifferentialDriveProjectedState::wheel_velocities);
+
+  py::class_<DifferentialDriveProjector>(m, "DifferentialDriveProjector")
+    .def(
+      py::init<DifferentialDriveModel, double, double, double, double>(),
+      py::arg("model"),
+      py::arg("min_linear_velocity_m_s"),
+      py::arg("max_linear_velocity_m_s"),
+      py::arg("min_angular_velocity_rad_s"),
+      py::arg("max_angular_velocity_rad_s"))
+    .def(
+      "step",
+      &DifferentialDriveProjector::step,
+      py::arg("dt_s"),
+      py::arg("current_pose"),
+      py::arg("current_linear_velocity_m_s"),
+      py::arg("current_angular_velocity_rad_s"),
+      py::arg("target_linear_velocity_m_s"),
+      py::arg("target_angular_velocity_rad_s"),
+      py::arg("linear_acceleration_m_s2"),
+      py::arg("angular_acceleration_rad_s2"))
+    .def(
+      "project",
+      &DifferentialDriveProjector::project,
+      py::arg("horizon_s"),
+      py::arg("dt_s"),
+      py::arg("initial_pose"),
+      py::arg("initial_linear_velocity_m_s"),
+      py::arg("initial_angular_velocity_rad_s"),
+      py::arg("target_linear_velocity_m_s"),
+      py::arg("target_angular_velocity_rad_s"),
+      py::arg("linear_acceleration_m_s2"),
+      py::arg("angular_acceleration_rad_s2"))
+    .def_property_readonly(
+      "model", &DifferentialDriveProjector::get_model, py::return_value_policy::reference_internal)
+    .def_property_readonly("min_linear_velocity_m_s", &DifferentialDriveProjector::get_min_linear_velocity_m_s)
+    .def_property_readonly("max_linear_velocity_m_s", &DifferentialDriveProjector::get_max_linear_velocity_m_s)
+    .def_property_readonly("min_angular_velocity_rad_s", &DifferentialDriveProjector::get_min_angular_velocity_rad_s)
+    .def_property_readonly("max_angular_velocity_rad_s", &DifferentialDriveProjector::get_max_angular_velocity_rad_s);
 }
 
 }  // namespace polymath::kinematics

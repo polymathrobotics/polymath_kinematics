@@ -27,6 +27,9 @@ from polymath_kinematics.explorer import (
     plot_lattice,
     plot_trajectory_with_footprints,
     select_symmetric_trajectories,
+    single_articulated_trajectory,
+    single_bicycle_trajectory,
+    single_differential_trajectory,
     trajectories_to_dataframe,
 )
 
@@ -306,3 +309,119 @@ class TestConfig:
             assert 'title' in KINEMATIC_EQUATIONS[model_type]
             assert 'equations' in KINEMATIC_EQUATIONS[model_type]
             assert 'variables' in KINEMATIC_EQUATIONS[model_type]
+
+
+class TestSingleTrajectory:
+    def test_single_bicycle_trajectory_reaches_target(self):
+        # Initial=0, target=0.3, rate=0.3 rad/s, duration=2s → step adds at most 0.3*dt;
+        # over 2s we reach the target well before the horizon ends. The trajectory's
+        # `steering_angle` field reflects the target (steady-state).
+        traj = single_bicycle_trajectory(
+            wheelbase=2.5,
+            track_width=1.5,
+            wheel_radius=0.3,
+            initial_steering_angle_rad=0.0,
+            target_steering_angle_rad=0.3,
+            steering_rate_rad_s=0.3,
+            drive_velocity=1.0,
+            duration=2.0,
+            time_step=0.1,
+        )
+        assert traj.steering_angle == pytest.approx(0.3)
+        assert len(traj.time) == 21
+        # Pose advanced from origin (we drove forward).
+        assert traj.x[-1] > 0.0
+
+    def test_single_articulated_trajectory_reaches_target(self):
+        traj = single_articulated_trajectory(
+            articulation_to_front=1.66,
+            articulation_to_rear=1.44,
+            front_track=2.0,
+            rear_track=2.0,
+            front_wheel_radius=0.723,
+            rear_wheel_radius=0.723,
+            initial_articulation_angle_rad=0.0,
+            target_articulation_angle_rad=0.4,
+            articulation_rate_rad_s=0.5,
+            drive_velocity=1.0,
+            duration=2.0,
+            time_step=0.1,
+        )
+        assert traj.articulation_angle == pytest.approx(0.4)
+        assert len(traj.time) == 21
+        assert traj.x[-1] > 0.0
+
+    def test_single_differential_trajectory_ramps_both_velocities(self):
+        traj = single_differential_trajectory(
+            wheel_radius=0.1,
+            track_width=0.5,
+            initial_linear_velocity=0.0,
+            initial_angular_velocity=0.0,
+            target_linear_velocity=1.0,
+            target_angular_velocity=0.5,
+            linear_acceleration=1.0,
+            angular_acceleration=1.0,
+            duration=2.0,
+            time_step=0.1,
+        )
+        # Targets reached in ~1.0s and ~0.5s respectively; final state pinned to target.
+        assert traj.linear_velocity == pytest.approx(1.0)
+        assert traj.angular_velocity == pytest.approx(0.5)
+        assert len(traj.time) == 21
+
+    def test_single_bicycle_zero_rate_keeps_initial_angle(self):
+        # With rate=0 the angle never advances; turning_radius reflects the (unchanging)
+        # initial angle, not the target.
+        traj = single_bicycle_trajectory(
+            wheelbase=2.5,
+            track_width=1.5,
+            wheel_radius=0.3,
+            initial_steering_angle_rad=0.0,
+            target_steering_angle_rad=0.5,
+            steering_rate_rad_s=0.0,
+            drive_velocity=1.0,
+            duration=1.0,
+            time_step=0.1,
+        )
+        # Zero steering → straight line along +x.
+        assert traj.x[-1] == pytest.approx(1.0)
+        assert traj.y[-1] == pytest.approx(0.0)
+
+    def test_single_bicycle_steering_series_brackets_initial_and_target(self):
+        # Initial=0 → target=0.3 at rate=0.3 rad/s; ramp completes in 1s. Over duration=2s
+        # the series starts at 0 and ends pinned at 0.3.
+        traj = single_bicycle_trajectory(
+            wheelbase=2.5,
+            track_width=1.5,
+            wheel_radius=0.3,
+            initial_steering_angle_rad=0.0,
+            target_steering_angle_rad=0.3,
+            steering_rate_rad_s=0.3,
+            drive_velocity=1.0,
+            duration=2.0,
+            time_step=0.1,
+        )
+        assert traj.steering_angle_series is not None
+        assert len(traj.steering_angle_series) == len(traj.time)
+        assert traj.steering_angle_series[0] == pytest.approx(0.0)
+        assert traj.steering_angle_series[-1] == pytest.approx(0.3)
+
+    def test_single_articulated_articulation_series_brackets_initial_and_target(self):
+        traj = single_articulated_trajectory(
+            articulation_to_front=1.66,
+            articulation_to_rear=1.44,
+            front_track=2.0,
+            rear_track=2.0,
+            front_wheel_radius=0.723,
+            rear_wheel_radius=0.723,
+            initial_articulation_angle_rad=0.0,
+            target_articulation_angle_rad=0.4,
+            articulation_rate_rad_s=0.5,
+            drive_velocity=1.0,
+            duration=2.0,
+            time_step=0.1,
+        )
+        assert traj.articulation_angle_series is not None
+        assert len(traj.articulation_angle_series) == len(traj.time)
+        assert traj.articulation_angle_series[0] == pytest.approx(0.0)
+        assert traj.articulation_angle_series[-1] == pytest.approx(0.4)

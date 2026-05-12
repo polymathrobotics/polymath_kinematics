@@ -16,7 +16,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Union
+from typing import Optional, Union
 
 import numpy as np
 
@@ -47,20 +47,34 @@ class DifferentialTrajectory(Trajectory):
 
 @dataclass
 class BicycleTrajectory(Trajectory):
-    """Trajectory for bicycle model."""
+    """Trajectory for bicycle model.
+
+    ``steering_angle`` is the steady-state / target value used for legend labels and
+    analysis plots. For ramped trajectories, ``steering_angle_series`` holds the
+    per-sample steering angle (same length as ``time``); the footprint visualizer
+    uses it to draw front-wheel indicators at the angle reported for each sample.
+    """
 
     drive_velocity: float = 0.0
     steering_angle: float = 0.0
     turning_radius: float = 0.0
+    steering_angle_series: Optional[np.ndarray] = None
 
 
 @dataclass
 class ArticulatedTrajectory(Trajectory):
-    """Trajectory for articulated vehicle model."""
+    """Trajectory for articulated vehicle model.
+
+    ``articulation_angle`` is the steady-state / target value used for legend labels
+    and analysis plots. For ramped trajectories, ``articulation_angle_series`` holds
+    the per-sample articulation angle (same length as ``time``); the footprint
+    visualizer uses it to fold the rear segment progressively across the trajectory.
+    """
 
     drive_velocity: float = 0.0
     articulation_angle: float = 0.0
     turning_radius: float = 0.0
+    articulation_angle_series: Optional[np.ndarray] = None
 
 
 # Type alias for any trajectory type

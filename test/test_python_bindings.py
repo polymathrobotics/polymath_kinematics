@@ -22,6 +22,7 @@ from polymath_kinematics import (
     BicycleModel,
     BicycleProjector,
     DifferentialDriveModel,
+    DifferentialDriveProjector,
     Pose2D,
 )
 
@@ -266,3 +267,58 @@ class TestArticulatedProjector:
         assert traj[0].pose.y == pytest.approx(2.0)
         assert traj[0].pose.theta == pytest.approx(0.5)
         assert traj[0].articulation_angle_rad == pytest.approx(0.2)
+
+
+class TestDifferentialDriveProjector:
+    def _make(self):
+        return DifferentialDriveProjector(
+            model=DifferentialDriveModel(0.1, 0.5),
+            min_linear_velocity_m_s=-2.0,
+            max_linear_velocity_m_s=2.0,
+            min_angular_velocity_rad_s=-3.0,
+            max_angular_velocity_rad_s=3.0,
+        )
+
+    def test_construction(self):
+        projector = self._make()
+        assert projector.min_linear_velocity_m_s == pytest.approx(-2.0)
+        assert projector.max_linear_velocity_m_s == pytest.approx(2.0)
+        assert projector.min_angular_velocity_rad_s == pytest.approx(-3.0)
+        assert projector.max_angular_velocity_rad_s == pytest.approx(3.0)
+        assert projector.model.wheel_radius == pytest.approx(0.1)
+
+    def test_zero_accel_freezes_velocities(self):
+        projector = self._make()
+        result = projector.step(
+            dt_s=0.1,
+            current_pose=Pose2D(),
+            current_linear_velocity_m_s=0.5,
+            current_angular_velocity_rad_s=0.2,
+            target_linear_velocity_m_s=1.5,
+            target_angular_velocity_rad_s=1.0,
+            linear_acceleration_m_s2=0.0,
+            angular_acceleration_rad_s2=0.0,
+        )
+        assert result.linear_velocity_m_s == pytest.approx(0.5)
+        assert result.angular_velocity_rad_s == pytest.approx(0.2)
+
+    def test_clamping_saturates_at_max(self):
+        projector = self._make()
+        result = projector.step(0.1, Pose2D(), 0.0, 0.0, 100.0, 100.0, 1000.0, 1000.0)
+        assert result.linear_velocity_m_s == pytest.approx(2.0)
+        assert result.angular_velocity_rad_s == pytest.approx(3.0)
+
+    def test_rate_limited_ramp(self):
+        projector = self._make()
+        result = projector.step(0.1, Pose2D(), 0.0, 0.0, 1.0, 0.5, 0.5, 0.3)
+        assert result.linear_velocity_m_s == pytest.approx(0.05)
+        assert result.angular_velocity_rad_s == pytest.approx(0.03)
+
+    def test_project_straight_line(self):
+        projector = self._make()
+        # Constant linear=1.0, zero angular, large accels.
+        traj = projector.project(1.0, 0.1, Pose2D(), 1.0, 0.0, 1.0, 0.0, 100.0, 100.0)
+        assert len(traj) == 11
+        assert traj[-1].pose.x == pytest.approx(1.0)
+        assert traj[-1].pose.y == pytest.approx(0.0)
+        assert traj[-1].pose.theta == pytest.approx(0.0)
