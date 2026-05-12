@@ -1,8 +1,15 @@
-# Colcon
+# Colcon (when built from the workspace root, build/ lives there)
 /build/
 /install/
 /log/
 
-# Python
+# Python / uv
+.venv/
 __pycache__/
 *.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# Build artifacts from CMake direct invocation
+*.so
