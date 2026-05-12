@@ -284,9 +284,12 @@ def generate_lattice_articulated(
     max_angle = max_articulation_angle_rad if max_articulation_angle_rad is not None else max(angles)
 
     model = ArticulatedModel(
-        articulation_to_front, articulation_to_rear,
-        front_track, rear_track,
-        front_wheel_radius, rear_wheel_radius,
+        articulation_to_front,
+        articulation_to_rear,
+        front_track,
+        rear_track,
+        front_wheel_radius,
+        rear_wheel_radius,
     )
     projector = ArticulatedProjector(model, min_angle, max_angle)
 
