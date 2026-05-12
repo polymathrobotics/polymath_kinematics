@@ -98,11 +98,11 @@ TEST_CASE("ArticulatedProjector project - straight line: zero articulation, thet
   Pose2D pose{0.0, 0.0, 0.0};
 
   auto trajectory = projector.project(1.0, 0.1, pose, 0.0, 0.0, 0.0, 1.5);
-  CHECK_EQ(trajectory.size(), 11);
-  CHECK_EQ(trajectory.back().pose.x, Approx(1.5));
-  CHECK_EQ(trajectory.back().pose.y, Approx(0.0));
-  CHECK_EQ(trajectory.back().pose.theta, Approx(0.0));
-  CHECK_EQ(trajectory.back().articulation_angle_rad, Approx(0.0));
+  CHECK(trajectory.size() == 11);
+  CHECK(trajectory.back().pose.x == Approx(1.5));
+  CHECK(trajectory.back().pose.y == Approx(0.0));
+  CHECK(trajectory.back().pose.theta == Approx(0.0));
+  CHECK(trajectory.back().articulation_angle_rad == Approx(0.0));
 }
 
 TEST_CASE("ArticulatedProjector project - articulation ramps then saturates at max")
@@ -113,9 +113,9 @@ TEST_CASE("ArticulatedProjector project - articulation ramps then saturates at m
   // target = 0.785 (= max), rate = 0.2 rad/s, dt = 0.1 → step adds 0.02
   // Reach max in ceil(0.785 / 0.02) = 40 steps; horizon 5.0s → 50 steps total.
   auto trajectory = projector.project(5.0, 0.1, pose, 0.0, 0.785, 0.2, 1.0);
-  CHECK_EQ(trajectory.size(), 51);
-  CHECK_EQ(trajectory[40].articulation_angle_rad, Approx(0.785));
-  CHECK_EQ(trajectory.back().articulation_angle_rad, Approx(0.785));
+  CHECK(trajectory.size() == 51);
+  CHECK(trajectory[40].articulation_angle_rad == Approx(0.785));
+  CHECK(trajectory.back().articulation_angle_rad == Approx(0.785));
 }
 
 TEST_CASE("ArticulatedProjector project - initial state stored as element 0")

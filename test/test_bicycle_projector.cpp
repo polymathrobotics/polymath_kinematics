@@ -92,13 +92,13 @@ TEST_CASE("BicycleProjector project - straight line traces +x with theta unchang
 
   auto trajectory = projector.project(1.0, 0.1, pose, 0.0, 0.0, 1.0, 2.0);
   // ceil(1.0 / 0.1) + 1 = 11 samples
-  CHECK_EQ(trajectory.size(), 11);
-  CHECK_EQ(trajectory.front().time_s, Approx(0.0));
-  CHECK_EQ(trajectory.front().pose.x, Approx(0.0));
-  CHECK_EQ(trajectory.back().time_s, Approx(1.0));
-  CHECK_EQ(trajectory.back().pose.x, Approx(2.0));  // x = v * t
-  CHECK_EQ(trajectory.back().pose.y, Approx(0.0));
-  CHECK_EQ(trajectory.back().pose.theta, Approx(0.0));
+  CHECK(trajectory.size() == 11);
+  CHECK(trajectory.front().time_s == Approx(0.0));
+  CHECK(trajectory.front().pose.x == Approx(0.0));
+  CHECK(trajectory.back().time_s == Approx(1.0));
+  CHECK(trajectory.back().pose.x == Approx(2.0));  // x = v * t
+  CHECK(trajectory.back().pose.y == Approx(0.0));
+  CHECK(trajectory.back().pose.theta == Approx(0.0));
 }
 
 TEST_CASE("BicycleProjector project - ramp reaches target in expected number of steps")
