@@ -45,12 +45,20 @@ def plot_vehicle_footprint(
     width: float = 0.5,
     color: str = 'blue',
     alpha: float = 0.5,
+    steering_angle: float | None = None,
+    wheel_length_frac: float = 0.18,
+    wheel_width_frac: float = 0.08,
 ) -> None:
     """Draw a vehicle footprint (rectangle) at a given pose.
 
     The vehicle is centered on the rear axle position, with REAR_AXLE_POSITION
     controlling how far back the rear is, and FRONT_OVERHANG controlling
     how far forward the front extends.
+
+    When ``steering_angle`` is provided (radians), two front-wheel indicators
+    are drawn at the front-axle position, rotated by the steering angle in the
+    body frame. Useful for bicycle/Ackermann visualisation; pass ``None`` for
+    models that don't have steered wheels (e.g. differential drive).
     """
     corners_local = np.array([
         [-length * REAR_AXLE_POSITION, -width / 2],
@@ -78,6 +86,35 @@ def plot_vehicle_footprint(
         ec=color,
         alpha=min(1.0, alpha + 0.3),
     )
+
+    if steering_angle is not None:
+        # Front-wheel indicators: two filled rectangles at the front-axle (FRONT_OVERHANG)
+        # position, offset left/right by half the track width, each rotated by steering_angle
+        # in the body frame, then transformed to world by theta.
+        front_x_local = length * FRONT_OVERHANG
+        wheel_l = length * wheel_length_frac
+        wheel_w = width * wheel_width_frac
+        wheel_corners_centered = np.array([
+            [-wheel_l / 2.0, -wheel_w / 2.0],
+            [+wheel_l / 2.0, -wheel_w / 2.0],
+            [+wheel_l / 2.0, +wheel_w / 2.0],
+            [-wheel_l / 2.0, +wheel_w / 2.0],
+            [-wheel_l / 2.0, -wheel_w / 2.0],
+        ])
+        cos_s, sin_s = np.cos(steering_angle), np.sin(steering_angle)
+        wheel_rotation = np.array([[cos_s, -sin_s], [sin_s, cos_s]])
+        wheel_corners_steered = (wheel_rotation @ wheel_corners_centered.T).T  # (5, 2)
+        for lateral_offset in (-width / 2.0, +width / 2.0):
+            corners_body = wheel_corners_steered + np.array([front_x_local, lateral_offset])
+            corners_in_world = (rotation_matrix @ corners_body.T).T + np.array([x, y])
+            ax.fill(
+                corners_in_world[:, 0],
+                corners_in_world[:, 1],
+                color=color,
+                alpha=min(1.0, alpha + 0.2),
+                edgecolor=color,
+                linewidth=0.5,
+            )
 
 
 def plot_articulated_footprint(
@@ -272,12 +309,16 @@ def plot_trajectory_with_footprints(
 
             if model_type == 'Articulated':
                 articulated: ArticulatedTrajectory = trajectory  # type: ignore[assignment]
+                if articulated.articulation_angle_series is not None:
+                    sample_articulation_angle = float(articulated.articulation_angle_series[footprint_index])
+                else:
+                    sample_articulation_angle = articulated.articulation_angle
                 plot_articulated_footprint(
                     ax,
                     trajectory.x[footprint_index],
                     trajectory.y[footprint_index],
                     trajectory.theta[footprint_index],
-                    articulation_angle=articulated.articulation_angle,
+                    articulation_angle=sample_articulation_angle,
                     front_length=model_params['front_length'],
                     rear_length=model_params['rear_length'],
                     front_width=model_params['front_width'],
@@ -285,7 +326,24 @@ def plot_trajectory_with_footprints(
                     color=color,
                     alpha=footprint_alpha,
                 )
-            else:
+            elif model_type == 'Bicycle':
+                bicycle: BicycleTrajectory = trajectory  # type: ignore[assignment]
+                if bicycle.steering_angle_series is not None:
+                    sample_steering_angle = float(bicycle.steering_angle_series[footprint_index])
+                else:
+                    sample_steering_angle = bicycle.steering_angle
+                plot_vehicle_footprint(
+                    ax,
+                    trajectory.x[footprint_index],
+                    trajectory.y[footprint_index],
+                    trajectory.theta[footprint_index],
+                    length=model_params['length'],
+                    width=model_params['width'],
+                    color=color,
+                    alpha=footprint_alpha,
+                    steering_angle=sample_steering_angle,
+                )
+            else:  # Differential Drive — no steered wheels.
                 plot_vehicle_footprint(
                     ax,
                     trajectory.x[footprint_index],
