@@ -271,9 +271,7 @@ class TestPlotting:
 
     def test_plot_trajectory_with_footprints_bicycle(self, bicycle_trajectories):
         selected = select_symmetric_trajectories(bicycle_trajectories, 'Bicycle', num_angles=3, num_velocities=1)
-        figure = plot_trajectory_with_footprints(
-            selected, 'Bicycle', {'length': 2.5, 'width': 1.5}, num_footprints=3
-        )
+        figure = plot_trajectory_with_footprints(selected, 'Bicycle', {'length': 2.5, 'width': 1.5}, num_footprints=3)
         assert figure is not None
 
     def test_plot_trajectory_with_footprints_articulated(self, articulated_trajectories):
