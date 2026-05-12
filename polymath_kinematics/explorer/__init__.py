@@ -40,6 +40,9 @@ from .simulation import (
     simulate_trajectory,
     simulate_trajectory_euler,
     simulate_trajectory_rk4,
+    single_articulated_trajectory,
+    single_bicycle_trajectory,
+    single_differential_trajectory,
 )
 from .types import (
     AnyTrajectory,
@@ -69,6 +72,9 @@ __all__ = [
     'simulate_trajectory',
     'simulate_trajectory_euler',
     'simulate_trajectory_rk4',
+    'single_articulated_trajectory',
+    'single_bicycle_trajectory',
+    'single_differential_trajectory',
     # Plotting
     'plot_analysis',
     'plot_articulated_footprint',

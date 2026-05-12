@@ -27,6 +27,8 @@ from polymath_kinematics_cpp import (
     BicycleSteeringState,
     DifferentialDriveBodyVelocity,
     DifferentialDriveModel,
+    DifferentialDriveProjectedState,
+    DifferentialDriveProjector,
     DifferentialDriveWheelVelocities,
     Pose2D,
 )
@@ -44,6 +46,8 @@ __all__ = [
     'BicycleSteeringState',
     'DifferentialDriveBodyVelocity',
     'DifferentialDriveModel',
+    'DifferentialDriveProjectedState',
+    'DifferentialDriveProjector',
     'DifferentialDriveWheelVelocities',
     'Pose2D',
     'Twist2D',

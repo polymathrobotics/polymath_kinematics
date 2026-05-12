@@ -33,6 +33,7 @@ add_library(polymath_kinematics_core STATIC
   src/bicycle_model.cpp
   src/bicycle_projector.cpp
   src/differential_drive_model.cpp
+  src/differential_drive_projector.cpp
 )
 target_include_directories(polymath_kinematics_core PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -66,6 +67,7 @@ if(BUILD_TESTING)
     test_differential_drive
     test_bicycle_projector
     test_articulated_projector
+    test_differential_drive_projector
   )
   foreach(tgt IN LISTS _pk_tests)
     add_executable(${tgt} test/${tgt}.cpp)
