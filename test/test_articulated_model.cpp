@@ -205,4 +205,41 @@ TEST_CASE("ArticulatedModel roundtrip reverse - bodyVelocityToVehicleState to ar
   CHECK(axle_vel.front_axle_turning_velocity_rad_s == Approx(angular_velocity).margin(1e-6));
 }
 
+TEST_CASE("ArticulatedModel articulationToAxleVelocities - 2-arg delegates to 3-arg with rate=0")
+{
+  ArticulatedModel model(1.5, 1.2, 1.8, 1.6, 0.4, 0.5);
+
+  auto two_arg = model.articulationToAxleVelocities(2.0, 0.3);
+  auto three_arg_zero = model.articulationToAxleVelocities(2.0, 0.3, 0.0);
+
+  CHECK(two_arg.front_axle_turning_velocity_rad_s == Approx(three_arg_zero.front_axle_turning_velocity_rad_s));
+  CHECK(two_arg.rear_axle_turning_velocity_rad_s == Approx(three_arg_zero.rear_axle_turning_velocity_rad_s));
+}
+
+TEST_CASE("ArticulatedModel articulationToAxleVelocities - nonzero rate adds gamma-dot contribution")
+{
+  ArticulatedModel model(1.5, 1.2, 1.8, 1.6, 0.4, 0.5);
+
+  // From the derivation: omega_rear = omega_front - gamma_dot. So passing a non-zero rate must
+  // shift the rear-axle turning velocity by exactly -gamma_dot compared to the rate=0 case
+  // (the front-axle term changes too, but the rear-front difference is exactly gamma_dot).
+  double gamma_dot = 0.2;
+  auto rest = model.articulationToAxleVelocities(2.0, 0.3, 0.0);
+  auto with_rate = model.articulationToAxleVelocities(2.0, 0.3, gamma_dot);
+
+  CHECK(with_rate.front_axle_turning_velocity_rad_s - with_rate.rear_axle_turning_velocity_rad_s == Approx(gamma_dot));
+  CHECK(with_rate.front_axle_turning_velocity_rad_s != Approx(rest.front_axle_turning_velocity_rad_s));
+}
+
+TEST_CASE("ArticulatedModel bodyVelocityToVehicleState - 2-arg delegates to 3-arg with rate=0")
+{
+  ArticulatedModel model(1.5, 1.2, 1.8, 1.6, 0.4, 0.5);
+
+  auto two_arg = model.bodyVelocityToVehicleState(2.0, 0.5);
+  auto three_arg_zero = model.bodyVelocityToVehicleState(2.0, 0.5, 0.0);
+
+  CHECK(two_arg.articulation_angle_rad == Approx(three_arg_zero.articulation_angle_rad));
+  CHECK(two_arg.front_axle_turning_radius_m == Approx(three_arg_zero.front_axle_turning_radius_m));
+}
+
 }  // namespace polymath::kinematics

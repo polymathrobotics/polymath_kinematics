@@ -1,16 +1,48 @@
 [build-system]
-requires = ["setuptools", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["scikit-build-core>=0.10", "pybind11>=2.12"]
+build-backend = "scikit_build_core.build"
 
 [project]
 name = "polymath_kinematics"
-version = "0.1.0"
-description = "Simple mixed C++/Python kinematics library"
-license = {text = "Apache-2.0"}
+version = "0.2.0"
+description = "Mixed C++/Python kinematics library for vehicle models"
+license = { text = "Apache-2.0" }
 maintainers = [
-    {name = "Polymath Robotics", email = "dev@polymathrobotics.com"}
+    { name = "Polymath Robotics", email = "dev@polymathrobotics.com" },
 ]
-requires-python = ">=3.8"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.21.0",
+]
 
-[tool.setuptools]
-packages = ["polymath_kinematics"]
+[project.optional-dependencies]
+explorer = [
+    "streamlit>=1.20.0",
+    "matplotlib>=3.5.0",
+    "pandas>=1.4.0",
+]
+dev = [
+    "pytest>=7.0.0",
+    "polymath_kinematics[explorer]",
+]
+
+[project.scripts]
+kinematic-explorer = "polymath_kinematics.kinematic_explorer_app:main"
+
+[tool.scikit-build]
+cmake.version = ">=3.15"
+build.verbose = false
+# C++ tests are built out-of-band via `cmake -DBUILD_TESTING=ON`, not as part of the wheel.
+# CMAKE_DISABLE_FIND_PACKAGE_ament_cmake forces the wheel build down the non-ament path even
+# when /opt/ros/humble is installed on the system — otherwise the ROS2 branch is taken and
+# then fails on missing build-env deps like catkin_pkg.
+cmake.args = ["-DBUILD_TESTING=OFF", "-DCMAKE_DISABLE_FIND_PACKAGE_ament_cmake=ON"]
+wheel.packages = ["polymath_kinematics"]
+
+[dependency-groups]
+dev = [
+    "pytest>=7.0.0",
+    "streamlit>=1.20.0",
+    "matplotlib>=3.5.0",
+    "pandas>=1.4.0",
+]
