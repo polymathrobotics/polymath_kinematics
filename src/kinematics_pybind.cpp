@@ -268,8 +268,7 @@ PYBIND11_MODULE(polymath_kinematics_cpp, m)
       py::arg("target_angular_velocity_rad_s"),
       py::arg("linear_acceleration_m_s2"),
       py::arg("angular_acceleration_rad_s2"))
-    .def_property_readonly(
-      "model", &DifferentialDriveProjector::get_model, py::return_value_policy::reference_internal)
+    .def_property_readonly("model", &DifferentialDriveProjector::get_model, py::return_value_policy::reference_internal)
     .def_property_readonly("min_linear_velocity_m_s", &DifferentialDriveProjector::get_min_linear_velocity_m_s)
     .def_property_readonly("max_linear_velocity_m_s", &DifferentialDriveProjector::get_max_linear_velocity_m_s)
     .def_property_readonly("min_angular_velocity_rad_s", &DifferentialDriveProjector::get_min_angular_velocity_rad_s)

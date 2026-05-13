@@ -122,7 +122,9 @@ def _cached_single_bicycle(
     time_step: float,
 ) -> BicycleTrajectory:
     return single_bicycle_trajectory(
-        wheelbase, track_width, wheel_radius,
+        wheelbase,
+        track_width,
+        wheel_radius,
         initial_steering_angle_rad=initial_steering_angle_rad,
         target_steering_angle_rad=target_steering_angle_rad,
         steering_rate_rad_s=steering_rate_rad_s,
@@ -148,9 +150,12 @@ def _cached_single_articulated(
     time_step: float,
 ) -> ArticulatedTrajectory:
     return single_articulated_trajectory(
-        articulation_to_front, articulation_to_rear,
-        front_track, rear_track,
-        front_wheel_radius, rear_wheel_radius,
+        articulation_to_front,
+        articulation_to_rear,
+        front_track,
+        rear_track,
+        front_wheel_radius,
+        rear_wheel_radius,
         initial_articulation_angle_rad=initial_articulation_angle_rad,
         target_articulation_angle_rad=target_articulation_angle_rad,
         articulation_rate_rad_s=articulation_rate_rad_s,
@@ -174,7 +179,8 @@ def _cached_single_differential(
     time_step: float,
 ) -> DifferentialTrajectory:
     return single_differential_trajectory(
-        wheel_radius, track_width,
+        wheel_radius,
+        track_width,
         initial_linear_velocity=initial_linear_velocity,
         initial_angular_velocity=initial_angular_velocity,
         target_linear_velocity=target_linear_velocity,
@@ -618,18 +624,29 @@ if model_type == 'Bicycle':
     with col_a:
         single_initial_deg = st.slider(
             'Initial Steering (deg)',
-            -st.session_state.bike_max_steer, st.session_state.bike_max_steer,
-            0.0, 1.0, key='bike_single_initial_deg',
+            -st.session_state.bike_max_steer,
+            st.session_state.bike_max_steer,
+            0.0,
+            1.0,
+            key='bike_single_initial_deg',
         )
     with col_b:
         single_target_deg = st.slider(
             'Target Steering (deg)',
-            -st.session_state.bike_max_steer, st.session_state.bike_max_steer,
-            float(st.session_state.bike_max_steer / 2), 1.0, key='bike_single_target_deg',
+            -st.session_state.bike_max_steer,
+            st.session_state.bike_max_steer,
+            float(st.session_state.bike_max_steer / 2),
+            1.0,
+            key='bike_single_target_deg',
         )
     with col_c:
         single_rate_deg_s = st.slider(
-            'Steering Rate (deg/s)', 0.0, 180.0, 30.0, 1.0, key='bike_single_rate_deg_s',
+            'Steering Rate (deg/s)',
+            0.0,
+            180.0,
+            30.0,
+            1.0,
+            key='bike_single_rate_deg_s',
         )
 
     single_traj = _cached_single_bicycle(
@@ -657,18 +674,29 @@ elif model_type == 'Articulated':
     with col_a:
         single_initial_deg = st.slider(
             'Initial Articulation (deg)',
-            -st.session_state.art_max_angle, st.session_state.art_max_angle,
-            0.0, 1.0, key='art_single_initial_deg',
+            -st.session_state.art_max_angle,
+            st.session_state.art_max_angle,
+            0.0,
+            1.0,
+            key='art_single_initial_deg',
         )
     with col_b:
         single_target_deg = st.slider(
             'Target Articulation (deg)',
-            -st.session_state.art_max_angle, st.session_state.art_max_angle,
-            float(st.session_state.art_max_angle / 2), 1.0, key='art_single_target_deg',
+            -st.session_state.art_max_angle,
+            st.session_state.art_max_angle,
+            float(st.session_state.art_max_angle / 2),
+            1.0,
+            key='art_single_target_deg',
         )
     with col_c:
         single_rate_deg_s = st.slider(
-            'Articulation Rate (deg/s)', 0.0, 90.0, 15.0, 1.0, key='art_single_rate_deg_s',
+            'Articulation Rate (deg/s)',
+            0.0,
+            90.0,
+            15.0,
+            1.0,
+            key='art_single_rate_deg_s',
         )
 
     single_traj = _cached_single_articulated(
@@ -699,29 +727,59 @@ else:  # Differential Drive — ramp linear AND angular body command.
     col_a, col_b, col_c, col_d = st.columns(4)
     with col_a:
         single_initial_v = st.slider(
-            'Initial Linear (m/s)', -3.0, 3.0, 0.0, 0.1, key='diff_single_initial_v',
+            'Initial Linear (m/s)',
+            -3.0,
+            3.0,
+            0.0,
+            0.1,
+            key='diff_single_initial_v',
         )
     with col_b:
         single_target_v = st.slider(
-            'Target Linear (m/s)', -3.0, 3.0, 1.0, 0.1, key='diff_single_target_v',
+            'Target Linear (m/s)',
+            -3.0,
+            3.0,
+            1.0,
+            0.1,
+            key='diff_single_target_v',
         )
     with col_c:
         single_initial_omega = st.slider(
-            'Initial Angular (rad/s)', -3.0, 3.0, 0.0, 0.1, key='diff_single_initial_omega',
+            'Initial Angular (rad/s)',
+            -3.0,
+            3.0,
+            0.0,
+            0.1,
+            key='diff_single_initial_omega',
         )
     with col_d:
         single_target_omega = st.slider(
-            'Target Angular (rad/s)', -3.0, 3.0, 0.5, 0.1, key='diff_single_target_omega',
+            'Target Angular (rad/s)',
+            -3.0,
+            3.0,
+            0.5,
+            0.1,
+            key='diff_single_target_omega',
         )
     st.markdown('**Acceleration limits**')
     col_e, col_f = st.columns(2)
     with col_e:
         single_linear_accel = st.slider(
-            'Linear Accel (m/s²)', 0.0, 5.0, 1.0, 0.1, key='diff_single_linear_accel',
+            'Linear Accel (m/s²)',
+            0.0,
+            5.0,
+            1.0,
+            0.1,
+            key='diff_single_linear_accel',
         )
     with col_f:
         single_angular_accel = st.slider(
-            'Angular Accel (rad/s²)', 0.0, 5.0, 1.0, 0.1, key='diff_single_angular_accel',
+            'Angular Accel (rad/s²)',
+            0.0,
+            5.0,
+            1.0,
+            0.1,
+            key='diff_single_angular_accel',
         )
 
     single_traj = _cached_single_differential(
@@ -739,10 +797,7 @@ else:  # Differential Drive — ramp linear AND angular body command.
     single_fig = plot_trajectory_with_footprints([single_traj], model_type, model_params, num_footprints=5)
     st.pyplot(single_fig)
     plt.close(single_fig)
-    st.caption(
-        f'Horizon: {st.session_state.sim_duration:.1f}s · '
-        f'dt: {st.session_state.sim_dt:.3f}s'
-    )
+    st.caption(f'Horizon: {st.session_state.sim_duration:.1f}s · dt: {st.session_state.sim_dt:.3f}s')
 
 # Parameter Table
 with st.expander('Current Configuration', expanded=False):

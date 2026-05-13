@@ -407,9 +407,12 @@ def single_articulated_trajectory(
         max_articulation_angle_rad = max(initial_articulation_angle_rad, target_articulation_angle_rad)
 
     model = ArticulatedModel(
-        articulation_to_front, articulation_to_rear,
-        front_track, rear_track,
-        front_wheel_radius, rear_wheel_radius,
+        articulation_to_front,
+        articulation_to_rear,
+        front_track,
+        rear_track,
+        front_wheel_radius,
+        rear_wheel_radius,
     )
     projector = ArticulatedProjector(model, min_articulation_angle_rad, max_articulation_angle_rad)
     states = projector.project(
@@ -468,8 +471,10 @@ def single_differential_trajectory(
     model = DifferentialDriveModel(wheel_radius, track_width)
     projector = DifferentialDriveProjector(
         model,
-        min_linear_velocity, max_linear_velocity,
-        min_angular_velocity, max_angular_velocity,
+        min_linear_velocity,
+        max_linear_velocity,
+        min_angular_velocity,
+        max_angular_velocity,
     )
     states = projector.project(
         horizon_s=duration,
@@ -493,7 +498,5 @@ def single_differential_trajectory(
         angular_velocity=states[-1].angular_velocity_rad_s,
         left_wheel=final_wheels.left_wheel_velocity_rad_s,
         right_wheel=final_wheels.right_wheel_velocity_rad_s,
-        base_wheel_velocity=(
-            final_wheels.left_wheel_velocity_rad_s + final_wheels.right_wheel_velocity_rad_s
-        ) / 2.0,
+        base_wheel_velocity=(final_wheels.left_wheel_velocity_rad_s + final_wheels.right_wheel_velocity_rad_s) / 2.0,
     )
