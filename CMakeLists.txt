@@ -1,4 +1,6 @@
 # Copyright (c) 2025-present Polymath Robotics, Inc. All rights reserved
+# Proprietary. Any unauthorized copying, distribution, or modification of this software is strictly prohibited.
+# Copyright (c) 2025-present Polymath Robotics, Inc. All rights reserved
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,47 +15,50 @@
 # limitations under the License.
 
 cmake_minimum_required(VERSION 3.15)
-project(polymath_kinematics CXX)
+project(polymath_kinematics)
 
-set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_EXTENSIONS OFF)
-
+if(NOT CMAKE_CXX_STANDARD)
+  set(CMAKE_CXX_STANDARD 17)
+endif()
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic -Werror)
 endif()
 
-# Ubuntu codename detection -> Catch2 v2 (Jammy) vs v3 (everything else).
-# Mirrors socketcan_adapter so the Catch2 version is picked deterministically
-# per distro instead of best-effort QUIET probing.
+# Ubuntu detection (override with -DBUILD_JAMMY=ON/OFF)
 if(NOT DEFINED BUILD_JAMMY)
   set(BUILD_JAMMY OFF)
   if(EXISTS "/etc/os-release")
     file(READ "/etc/os-release" _OS_RELEASE)
     string(REGEX MATCH "VERSION_CODENAME=([^\n\r]+)" _match "${_OS_RELEASE}")
     if(CMAKE_MATCH_1)
-      string(TOLOWER "${CMAKE_MATCH_1}" _UBUNTU_CODENAME)
+      set(_UBUNTU_CODENAME "${CMAKE_MATCH_1}")
+      string(TOLOWER "${_UBUNTU_CODENAME}" _UBUNTU_CODENAME)
       if(_UBUNTU_CODENAME STREQUAL "jammy")
         set(BUILD_JAMMY ON)
         message(STATUS "Ubuntu=jammy (22.04) -> Catch2 v2")
       else()
+        set(BUILD_JAMMY OFF)
         message(STATUS "Ubuntu codename='${_UBUNTU_CODENAME}' -> defaulting to Catch2 v3")
       endif()
     endif()
   endif()
 endif()
 
-# ament_cmake is only present under colcon. Absent under pip wheel builds,
-# which is fine: the QUIET probe simply leaves ament_cmake_FOUND false.
+# Find packages. ament_cmake is QUIET so the wheel build (no ROS2) falls
+# through to a plain CMake configuration.
 find_package(ament_cmake QUIET)
-find_package(Python COMPONENTS Interpreter Development.Module REQUIRED)
+find_package(Python3 REQUIRED COMPONENTS Interpreter Development.Module)
 find_package(pybind11 CONFIG REQUIRED)
 
-# Library target name must stay `polymath_kinematics`; downstream packages link
-# against it by that name. SHARED under ROS2 so consumers pick up the .so via
-# ament_export_targets; STATIC under wheel builds so the pybind11 module is
-# self-contained and the wheel ships a single shared object.
-set(_pk_lib_sources
+# C++ library with all kinematic models. SHARED under ROS2 (ament exports a
+# linkable .so to downstream packages); STATIC under wheel builds so the
+# pybind11 module is self-contained and the wheel ships a single .so.
+if(ament_cmake_FOUND)
+  set(_polymath_kinematics_lib_type SHARED)
+else()
+  set(_polymath_kinematics_lib_type STATIC)
+endif()
+add_library(polymath_kinematics ${_polymath_kinematics_lib_type}
   src/articulated_model.cpp
   src/articulated_projector.cpp
   src/bicycle_model.cpp
@@ -61,47 +66,43 @@ set(_pk_lib_sources
   src/differential_drive_model.cpp
   src/differential_drive_projector.cpp
 )
-if(ament_cmake_FOUND)
-  add_library(polymath_kinematics SHARED ${_pk_lib_sources})
-else()
-  add_library(polymath_kinematics STATIC ${_pk_lib_sources})
-endif()
 target_include_directories(polymath_kinematics PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
 )
 set_target_properties(polymath_kinematics PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
+# Python bindings
 pybind11_add_module(polymath_kinematics_cpp src/kinematics_pybind.cpp)
 target_link_libraries(polymath_kinematics_cpp PRIVATE polymath_kinematics)
 
 if(ament_cmake_FOUND)
   find_package(ament_cmake_python REQUIRED)
 
-  install(DIRECTORY include/ DESTINATION include)
-  install(TARGETS polymath_kinematics
-    EXPORT export_${PROJECT_NAME}
+  install(
+    TARGETS polymath_kinematics
+    EXPORT ${PROJECT_NAME}_TARGETS
     ARCHIVE DESTINATION lib
     LIBRARY DESTINATION lib
-    RUNTIME DESTINATION bin
+    RUNTIME DESTINATION lib/${PROJECT_NAME}
   )
-  ament_export_targets(export_${PROJECT_NAME} HAS_LIBRARY_TARGET)
-  ament_export_include_directories(include)
+  install(
+    EXPORT ${PROJECT_NAME}_TARGETS
+    NAMESPACE ${PROJECT_NAME}::
+    DESTINATION share/${PROJECT_NAME}/cmake
+  )
+  install(DIRECTORY include/ DESTINATION include/)
 
-  ament_python_install_package(polymath_kinematics)
-  # `polymath_kinematics_cpp` is a top-level module imported by polymath_kinematics/__init__.py,
-  # not a submodule. Install it as a sibling of the Python package, matching the wheel layout.
-  install(TARGETS polymath_kinematics_cpp
-    DESTINATION "${PYTHON_INSTALL_DIR}"
-  )
+  ament_python_install_package(${PROJECT_NAME})
+  install(TARGETS polymath_kinematics_cpp DESTINATION "${PYTHON_INSTALL_DIR}")
 else()
-  # Wheel build: scikit-build-core installs the extension at the wheel root so
-  # `from polymath_kinematics_cpp import ...` keeps working.
+  # Wheel build: scikit-build-core installs the extension at the wheel root.
   install(TARGETS polymath_kinematics_cpp DESTINATION .)
 endif()
 
 if(BUILD_TESTING)
   include(CTest)
+
   if(BUILD_JAMMY)
     find_package(Catch2 2 REQUIRED)
   else()
@@ -109,24 +110,23 @@ if(BUILD_TESTING)
   endif()
   include(Catch OPTIONAL)
 
-  set(_pk_tests
-    test_bicycle_model
-    test_articulated_model
-    test_differential_drive
-    test_bicycle_projector
-    test_articulated_projector
-    test_differential_drive_projector
-  )
-  foreach(tgt IN LISTS _pk_tests)
-    add_executable(${tgt} test/${tgt}.cpp)
-    target_link_libraries(${tgt} PRIVATE polymath_kinematics Catch2::Catch2WithMain)
-    target_include_directories(${tgt} PRIVATE test)
+  function(add_kinematics_catch2_test TEST_NAME TEST_SOURCE)
+    add_executable(${TEST_NAME} ${TEST_SOURCE})
+    target_link_libraries(${TEST_NAME} PRIVATE polymath_kinematics Catch2::Catch2WithMain)
+    target_include_directories(${TEST_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/test)
     if(COMMAND catch_discover_tests)
-      catch_discover_tests(${tgt})
+      catch_discover_tests(${TEST_NAME})
     else()
-      add_test(NAME ${tgt} COMMAND ${tgt})
+      add_test(NAME ${TEST_NAME} COMMAND ${TEST_NAME})
     endif()
-  endforeach()
+  endfunction()
+
+  add_kinematics_catch2_test(test_bicycle_model test/test_bicycle_model.cpp)
+  add_kinematics_catch2_test(test_articulated_model test/test_articulated_model.cpp)
+  add_kinematics_catch2_test(test_differential_drive test/test_differential_drive.cpp)
+  add_kinematics_catch2_test(test_bicycle_projector test/test_bicycle_projector.cpp)
+  add_kinematics_catch2_test(test_articulated_projector test/test_articulated_projector.cpp)
+  add_kinematics_catch2_test(test_differential_drive_projector test/test_differential_drive_projector.cpp)
 
   if(ament_cmake_FOUND)
     find_package(ament_cmake_pytest REQUIRED)
@@ -140,5 +140,8 @@ if(BUILD_TESTING)
 endif()
 
 if(ament_cmake_FOUND)
+  ament_export_targets(${PROJECT_NAME}_TARGETS HAS_LIBRARY_TARGET)
+  ament_export_include_directories(include)
+  ament_export_libraries(polymath_kinematics)
   ament_package()
 endif()
