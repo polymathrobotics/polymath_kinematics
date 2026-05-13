@@ -33,7 +33,10 @@ kinematic-explorer = "polymath_kinematics.kinematic_explorer_app:main"
 cmake.version = ">=3.15"
 build.verbose = false
 # C++ tests are built out-of-band via `cmake -DBUILD_TESTING=ON`, not as part of the wheel.
-cmake.args = ["-DBUILD_TESTING=OFF"]
+# CMAKE_DISABLE_FIND_PACKAGE_ament_cmake forces the wheel build down the non-ament path even
+# when /opt/ros/humble is installed on the system — otherwise the ROS2 branch is taken and
+# then fails on missing build-env deps like catkin_pkg.
+cmake.args = ["-DBUILD_TESTING=OFF", "-DCMAKE_DISABLE_FIND_PACKAGE_ament_cmake=ON"]
 wheel.packages = ["polymath_kinematics"]
 
 [dependency-groups]

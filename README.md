@@ -8,12 +8,18 @@ Includes an interactive **Kinematic Explorer** (Streamlit) for visualising traje
 
 ## Installation
 
-**Prerequisites:** Python 3.10+, a C++17 compiler, CMake 3.15+, and [uv](https://github.com/astral-sh/uv).
+**Prerequisites:** Python 3.10+, a C++17 compiler, CMake 3.15+, and [uv](https://github.com/astral-sh/uv) for the wheel path.
+
+The package supports three build paths. They share one `CMakeLists.txt`; `find_package(ament_cmake QUIET)` picks between the ROS2 and standalone branches at configure time.
+
+### 1. Python wheel (uv / pip)
+
+For Python-only consumers and the Streamlit explorer. Builds a static `polymath_kinematics` library and links it into the `polymath_kinematics_cpp` pybind11 module; ships the result as a single wheel.
 
 ```bash
 cd src/polymath_kinematics
 
-# C++ bindings only
+# Bindings only
 uv pip install -e .
 
 # Bindings + Kinematic Explorer (streamlit, matplotlib, pandas)
@@ -21,23 +27,42 @@ uv pip install -e ".[explorer]"
 
 # Bindings + Explorer + pytest
 uv pip install -e ".[dev]"
+
+# Or, without activating a venv first:
+uv run python -c "import polymath_kinematics; print(polymath_kinematics.BicycleModel(2.5, 1.5, 0.3))"
 ```
 
-The first install builds the pybind11 extension via CMake; subsequent installs are incremental.
+The wheel build sets `-DCMAKE_DISABLE_FIND_PACKAGE_ament_cmake=ON` via `pyproject.toml`, so a host-installed `/opt/ros/humble` does not pull the build down the ROS2 branch.
 
-### ROS2 / colcon
+### 2. ROS2 / colcon
 
-The package also builds inside a colcon workspace (it has a top-level `CMakeLists.txt`, no `package.xml` — colcon picks it up via its CMake detector):
+For consumers inside a ROS2 workspace. Produces a shared `libpolymath_kinematics.so` exported through ament (`polymath_kinematics::polymath_kinematics`) plus the pybind11 module installed alongside the Python package.
 
 ```bash
-# From the workspace root
-colcon build --merge-install --packages-select polymath_kinematics
+# From the colcon workspace root
+colcon build --packages-select polymath_kinematics
+
+# Build + run C++ Catch2 tests and Python pytest suites
+colcon build --packages-select polymath_kinematics --cmake-args -DBUILD_TESTING=ON
+colcon test  --packages-select polymath_kinematics
+colcon test-result --verbose
 ```
 
-To also build the C++ tests:
+### 3. Standalone CMake
+
+For working on the C++ code or running the Catch2 tests outside of ROS2 and outside of the wheel build (e.g. local IDE / ctest workflows).
 
 ```bash
-colcon build --merge-install --packages-select polymath_kinematics --cmake-args -DBUILD_TESTING=ON
+cd src/polymath_kinematics
+cmake -S . -B build -DBUILD_TESTING=ON
+cmake --build build -j
+ctest --test-dir build --output-on-failure
+```
+
+If `/opt/ros/humble` (or any other ament-providing install) is on the host, force the standalone path with:
+
+```bash
+cmake -S . -B build -DBUILD_TESTING=ON -DCMAKE_DISABLE_FIND_PACKAGE_ament_cmake=ON
 ```
 
 ## Running the Kinematic Explorer
@@ -64,12 +89,18 @@ The app opens at `http://localhost:8501` and exposes:
 ## Running tests
 
 ```bash
-# Python (bindings + explorer)
+# Python only (from the wheel install)
 uv run pytest
 
-# C++ (via colcon)
-colcon build --merge-install --packages-select polymath_kinematics --cmake-args -DBUILD_TESTING=ON
-cd ../../build/polymath_kinematics && ctest --output-on-failure
+# C++ Catch2 + Python pytest under ROS2
+colcon build --packages-select polymath_kinematics --cmake-args -DBUILD_TESTING=ON
+colcon test  --packages-select polymath_kinematics
+colcon test-result --verbose
+
+# C++ Catch2 standalone (no ROS2)
+cmake -S . -B build -DBUILD_TESTING=ON -DCMAKE_DISABLE_FIND_PACKAGE_ament_cmake=ON
+cmake --build build -j
+ctest --test-dir build --output-on-failure
 ```
 
 ## Derivations

@@ -16,6 +16,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <vector>
 
 namespace polymath::kinematics
 {
@@ -47,8 +48,7 @@ DifferentialDriveProjectedState DifferentialDriveProjector::step(
   double angular_acceleration_rad_s2)
 {
   // Clamp targets to actuator bounds before ramping.
-  double clamped_target_v =
-    std::clamp(target_linear_velocity_m_s, min_linear_velocity_m_s_, max_linear_velocity_m_s_);
+  double clamped_target_v = std::clamp(target_linear_velocity_m_s, min_linear_velocity_m_s_, max_linear_velocity_m_s_);
   double clamped_target_omega =
     std::clamp(target_angular_velocity_rad_s, min_angular_velocity_rad_s_, max_angular_velocity_rad_s_);
 
@@ -66,8 +66,7 @@ DifferentialDriveProjectedState DifferentialDriveProjector::step(
     current_pose.y + new_linear_velocity_m_s * std::sin(current_pose.theta) * dt_s,
     normalizeAngle(current_pose.theta + new_angular_velocity_rad_s * dt_s)};
 
-  return DifferentialDriveProjectedState{
-    dt_s, new_pose, new_linear_velocity_m_s, new_angular_velocity_rad_s, wheels};
+  return DifferentialDriveProjectedState{dt_s, new_pose, new_linear_velocity_m_s, new_angular_velocity_rad_s, wheels};
 }
 
 std::vector<DifferentialDriveProjectedState> DifferentialDriveProjector::project(
@@ -99,9 +98,14 @@ std::vector<DifferentialDriveProjectedState> DifferentialDriveProjector::project
   double angular_velocity_rad_s = initial_angular_velocity_rad_s;
   for (std::size_t i = 0; i < n_steps; ++i) {
     DifferentialDriveProjectedState s = step(
-      dt_s, pose, linear_velocity_m_s, angular_velocity_rad_s,
-      target_linear_velocity_m_s, target_angular_velocity_rad_s,
-      linear_acceleration_m_s2, angular_acceleration_rad_s2);
+      dt_s,
+      pose,
+      linear_velocity_m_s,
+      angular_velocity_rad_s,
+      target_linear_velocity_m_s,
+      target_angular_velocity_rad_s,
+      linear_acceleration_m_s2,
+      angular_acceleration_rad_s2);
     s.time_s = static_cast<double>(i + 1) * dt_s;
     pose = s.pose;
     linear_velocity_m_s = s.linear_velocity_m_s;
