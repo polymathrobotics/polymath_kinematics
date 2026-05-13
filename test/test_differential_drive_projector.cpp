@@ -32,8 +32,7 @@ constexpr double kOmegaMax = 3.0;
 DifferentialDriveProjector makeProjector()
 {
   return DifferentialDriveProjector(
-    DifferentialDriveModel(kWheelRadius, kTrackWidth),
-    kVMin, kVMax, kOmegaMin, kOmegaMax);
+    DifferentialDriveModel(kWheelRadius, kTrackWidth), kVMin, kVMax, kOmegaMin, kOmegaMax);
 }
 }  // namespace
 
