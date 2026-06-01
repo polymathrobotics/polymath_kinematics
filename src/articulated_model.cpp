@@ -14,6 +14,7 @@
 
 #include "polymath_kinematics/articulated_model.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <limits>
 
@@ -47,10 +48,20 @@ ArticulatedVehicleState ArticulatedModel::bodyVelocityToVehicleState(
       std::numeric_limits<double>::infinity()};
   }
 
-  // copysign selects + for forward, - for reverse.
-  double acos_calculation = std::acos(
+  // The acos argument is in [-1, 1] only when omega^2 * (Lr^2 - Lf^2) <= v^2, i.e. when the
+  // commanded curvature (omega / v) is achievable for this geometry. A tighter curvature than
+  // the wheelbase allows pushes it past +/-1; without clamping acos returns NaN, which then
+  // propagates into the articulation angle and every wheel-velocity command. Clamp so an
+  // over-tight command saturates to the sharpest representable turn (the controller further
+  // clamps the resulting steering command to the steering limits).
+  const double acos_argument = std::clamp(
     articulation_to_rear_axle_m_ * (articulation_turning_velocity_rad_s_ - angular_velocity_rad_s) /
-    std::hypot(angular_velocity_rad_s * articulation_to_front_axle_m_, linear_velocity_m_s));
+      std::hypot(angular_velocity_rad_s * articulation_to_front_axle_m_, linear_velocity_m_s),
+    -1.0,
+    1.0);
+
+  // copysign selects + for forward, - for reverse.
+  double acos_calculation = std::acos(acos_argument);
 
   double atan2_calculation = std::atan2(linear_velocity_m_s, angular_velocity_rad_s * articulation_to_front_axle_m_);
   double articulation_angle = std::copysign(acos_calculation, linear_velocity_m_s) - atan2_calculation;
