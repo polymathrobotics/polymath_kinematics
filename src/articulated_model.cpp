@@ -48,12 +48,8 @@ ArticulatedVehicleState ArticulatedModel::bodyVelocityToVehicleState(
       std::numeric_limits<double>::infinity()};
   }
 
-  // The acos argument is in [-1, 1] only when omega^2 * (Lr^2 - Lf^2) <= v^2, i.e. when the
-  // commanded curvature (omega / v) is achievable for this geometry. A tighter curvature than
-  // the wheelbase allows pushes it past +/-1; without clamping acos returns NaN, which then
-  // propagates into the articulation angle and every wheel-velocity command. Clamp so an
-  // over-tight command saturates to the sharpest representable turn (the controller further
-  // clamps the resulting steering command to the steering limits).
+  // Clamp keeps the arccos argument in [-1, 1] for over-tight commands; see the "Feasibility of
+  // the arccos argument (clamping)" section in derivations/articulated_model.md.
   const double acos_argument = std::clamp(
     articulation_to_rear_axle_m_ * (articulation_turning_velocity_rad_s_ - angular_velocity_rad_s) /
       std::hypot(angular_velocity_rad_s * articulation_to_front_axle_m_, linear_velocity_m_s),

@@ -137,6 +137,25 @@ With $\dot{\gamma} = 0$ (current implementation):
 $$\gamma = \operatorname{sign}(v)\cdot\arccos\!\left(\frac{-L_r\,\omega}{\sqrt{\omega^2 L_f^2 + v^2}}\right) - \operatorname{atan2}(v,\; \omega\, L_f) \tag{14}$$
 
 > **Branch selection:** The cosine inversion $\cos(\gamma+\phi) = c$ has two solutions $\gamma = \pm\arccos(c) - \phi$. $\operatorname{sign}(v)$ selects the appropriate branch in both directions.
+
+### Feasibility of the arccos argument (clamping)
+
+$\arccos$ is only defined for arguments in $[-1, 1]$. The argument of equation (13) is
+
+$$c = \frac{L_r\,(\dot{\gamma} - \omega)}{\sqrt{\omega^2 L_f^2 + v^2}}$$
+
+Requiring $|c| \le 1$ and squaring gives
+
+$$L_r^2(\dot{\gamma} - \omega)^2 \le \omega^2 L_f^2 + v^2$$
+
+which, with $\dot{\gamma} = 0$, reduces to the feasibility condition
+
+$$\omega^2\,(L_r^2 - L_f^2) \le v^2 \tag{15}$$
+
+Geometrically, this is the set of body velocities $(v, \omega)$ whose commanded curvature $\omega/v$ is achievable for the given articulation geometry. A command that asks for a tighter turn than the wheelbase permits violates (15), pushing $c$ outside $[-1, 1]$.
+
+If $c$ is left unbounded, $\arccos(c)$ returns NaN, and that NaN propagates through $\gamma$ into the turning radii and every wheel-velocity command. To keep the output well-defined, the implementation clamps $c$ to $[-1, 1]$ before calling $\arccos$. An infeasible (over-tight) command therefore saturates to the sharpest turn the geometry can represent ($c = \pm 1 \implies \gamma + \phi = 0$ or $\pi$) rather than producing NaN. The downstream controller further clamps the resulting steering command to the mechanical steering limits.
+
 ---
 
 ## Turning radii
