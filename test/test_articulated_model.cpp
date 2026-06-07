@@ -192,6 +192,23 @@ TEST_CASE("ArticulatedModel bodyVelocityToVehicleState - reverse right turn")
   CHECK(result.rear_left_wheel_speed_rad_s < 0.0);
 }
 
+TEST_CASE("ArticulatedModel bodyVelocityToVehicleState - over-tight curvature no NaN")
+{
+  // Kress geometry: rear wheelbase (6.196) >> front wheelbase (0.544). The acos argument is in
+  // [-1, 1] only when omega^2 * (Lr^2 - Lf^2) <= v^2, i.e. |v| >= ~6.17 * |omega|. A command that
+  // requests a tighter curvature than the geometry allows (here v=1.0, omega=0.3) pushed the acos
+  // argument past +1 and produced NaN wheel-velocity commands before clamping was added.
+  ArticulatedModel model(0.544, 6.196, 2.280, 6.830, 1.085, 1.645);
+
+  auto result = model.bodyVelocityToVehicleState(1.0, 0.3);
+
+  CHECK_FALSE(std::isnan(result.articulation_angle_rad));
+  CHECK_FALSE(std::isnan(result.front_right_wheel_speed_rad_s));
+  CHECK_FALSE(std::isnan(result.front_left_wheel_speed_rad_s));
+  CHECK_FALSE(std::isnan(result.rear_right_wheel_speed_rad_s));
+  CHECK_FALSE(std::isnan(result.rear_left_wheel_speed_rad_s));
+}
+
 TEST_CASE("ArticulatedModel roundtrip reverse - bodyVelocityToVehicleState to articulationToAxleVelocities")
 {
   ArticulatedModel model(1.5, 1.2, 1.8, 1.6, 0.4, 0.5);
