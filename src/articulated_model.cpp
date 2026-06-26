@@ -57,7 +57,7 @@ ArticulatedVehicleState ArticulatedModel::bodyVelocityToVehicleState(
   // Clamp keeps the arccos argument in [-1, 1] for over-tight commands; see the "Feasibility of
   // the arccos argument (clamping)" section in derivations/articulated_model.md.
   const double acos_argument = std::clamp(
-    articulation_to_rear_axle_m_ * (articulation_turning_velocity_rad_s_ - angular_velocity_rad_s) /
+    articulation_to_rear_axle_m_ * (articulation_turning_velocity_rad_s - angular_velocity_rad_s) /
       std::hypot(angular_velocity_rad_s * articulation_to_front_axle_m_, linear_velocity_m_s),
     -1.0,
     1.0);
