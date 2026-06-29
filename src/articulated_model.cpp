@@ -24,10 +24,11 @@ namespace polymath::kinematics
 ArticulatedVehicleState ArticulatedModel::bodyVelocityToVehicleState(
   double linear_velocity_m_s, double angular_velocity_rad_s)
 {
-  // Guard: fully stationary — sqrt denominator collapses to 0, producing 0/0 = NaN
+  // Guard: If fully stationary — sqrt denominator collapses to 0, producing 0/0 = NaN
+  // Guard: If linear velocity is 0 and angular velocity is > 0, atan2 -> pi which can cause jumps. Handle in calling system.
   if (
-    std::abs(linear_velocity_m_s) < ZERO_VELOCITY_THRESHOLD &&
-    std::abs(angular_velocity_rad_s) < ZERO_VELOCITY_THRESHOLD)
+    std::abs(linear_velocity_m_s) < ZERO_VELOCITY_THRESHOLD 
+  )
   {
     return ArticulatedVehicleState{
       0.0, 0.0, 0.0, 0.0, 0.0, 0.0, std::numeric_limits<double>::infinity(), std::numeric_limits<double>::infinity()};
