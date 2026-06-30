@@ -17,6 +17,10 @@
   <test_depend>ament_cmake_pytest</test_depend>
   <test_depend>ament_cmake_test</test_depend>
   <test_depend>catch2</test_depend>
+  <!-- Explorer subpackage deps (optional [explorer] extra) needed to import
+       polymath_kinematics.explorer during test_explorer. -->
+  <test_depend>python3-pandas</test_depend>
+  <test_depend>python3-matplotlib</test_depend>
 
   <export>
     <build_type>ament_cmake</build_type>
