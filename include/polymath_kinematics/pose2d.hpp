@@ -16,6 +16,7 @@
 #define POLYMATH_KINEMATICS__POSE2D_HPP__
 
 #include <cmath>
+#include <vector>
 
 namespace polymath::kinematics
 {
@@ -28,15 +29,24 @@ struct Pose2D
   double theta;
 };
 
-/// @brief Wrap an angle to [-pi, pi]
+/// @brief A planar point (world frame, metres).
+struct Point2D
+{
+  double x;
+  double y;
+};
+
+/// @brief A vehicle footprint as a world-frame polygon: 4 corners, counter-clockwise,
+/// NOT closed (the first corner is not repeated; consumers close it if needed). An empty
+/// footprint means "not computed / invalid" (e.g. when no footprint dimensions were given).
+using Footprint = std::vector<Point2D>;
+
+/// @brief Wrap an angle to [-pi, pi].
+/// std::remainder(angle, 2*pi) maps to the [-pi, pi] interval directly (note: exactly +pi
+/// maps to +pi, where the old fmod-based implementation returned -pi; both denote the same angle).
 inline double normalizeAngle(double angle)
 {
-  constexpr double kTwoPi = 2.0 * M_PI;
-  double a = std::fmod(angle + M_PI, kTwoPi);
-  if (a < 0.0) {
-    a += kTwoPi;
-  }
-  return a - M_PI;
+  return std::remainder(angle, 2.0 * M_PI);
 }
 
 }  // namespace polymath::kinematics

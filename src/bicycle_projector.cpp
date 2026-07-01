@@ -53,8 +53,31 @@ BicycleProjectedState BicycleProjector::step(
     current_pose.y + linear_velocity_m_s * std::sin(current_pose.theta) * dt_s,
     normalizeAngle(current_pose.theta + body_vel.angular_velocity_rad_s * dt_s)};
 
-  return BicycleProjectedState{
-    dt_s, new_pose, new_steering_angle_rad, linear_velocity_m_s, body_vel.angular_velocity_rad_s, inner};
+  BicycleProjectedState state{
+    dt_s, new_pose, new_steering_angle_rad, linear_velocity_m_s, body_vel.angular_velocity_rad_s, inner, {}};
+  fillFootprint(state);
+  return state;
+}
+
+void BicycleProjector::fillFootprint(BicycleProjectedState & state) const
+{
+  Footprint & corners = state.footprint;
+  corners.clear();
+  if (body_width_m_ <= 0.0) {
+    return;
+  }
+  const double half_w = body_width_m_ / 2.0;
+  const double cos_t = std::cos(state.pose.theta);
+  const double sin_t = std::sin(state.pose.theta);
+  // CCW, open: rear-right, front-right, front-left, rear-left (body frame), then to world.
+  const double local_x[4] = {-rear_overhang_m_, front_overhang_m_, front_overhang_m_, -rear_overhang_m_};
+  const double local_y[4] = {-half_w, -half_w, half_w, half_w};
+  corners.reserve(4);
+  for (int i = 0; i < 4; ++i) {
+    corners.push_back(Point2D{
+      state.pose.x + cos_t * local_x[i] - sin_t * local_y[i],
+      state.pose.y + sin_t * local_x[i] + cos_t * local_y[i]});
+  }
 }
 
 std::vector<BicycleProjectedState> BicycleProjector::project(
@@ -76,13 +99,16 @@ std::vector<BicycleProjectedState> BicycleProjector::project(
   BicycleBodyVelocity initial_body = model_.steeringToBodyVelocity(linear_velocity_m_s, initial_steering_angle_rad);
   BicycleSteeringState initial_inner =
     model_.bodyVelocityToSteering(linear_velocity_m_s, initial_body.angular_velocity_rad_s);
-  trajectory.push_back(BicycleProjectedState{
+  BicycleProjectedState initial_state{
     0.0,
     initial_pose,
     initial_steering_angle_rad,
     linear_velocity_m_s,
     initial_body.angular_velocity_rad_s,
-    initial_inner});
+    initial_inner,
+    {}};
+  fillFootprint(initial_state);
+  trajectory.push_back(initial_state);
 
   std::size_t n_steps = static_cast<std::size_t>(std::ceil(horizon_s / dt_s));
   trajectory.reserve(n_steps + 1);

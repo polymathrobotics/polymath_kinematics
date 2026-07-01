@@ -31,6 +31,7 @@ struct DifferentialDriveProjectedState
   double linear_velocity_m_s;  ///< Post-ramp body linear velocity in m/s
   double angular_velocity_rad_s;  ///< Post-ramp body angular velocity in rad/s
   DifferentialDriveWheelVelocities wheel_velocities;  ///< Wheel speeds derived from the body command
+  Footprint footprint;  ///< World-frame body polygon; empty if no footprint dims set
 };
 
 /// @brief Forward-projection wrapper around DifferentialDriveModel that ramps the body command
@@ -45,17 +46,32 @@ public:
   /// @param max_linear_velocity_m_s Maximum allowed linear velocity
   /// @param min_angular_velocity_rad_s Minimum allowed angular velocity (typically negative)
   /// @param max_angular_velocity_rad_s Maximum allowed angular velocity
+  ///
+  /// Footprint dimensions describe the vehicle body relative to the pose reference and are owned
+  /// by the projector (the kinematic model stays dimension-free). The body is a rectangle
+  /// spanning [-rear_overhang_m, front_overhang_m] along the heading and `body_width_m` across.
+  /// A body width <= 0 means "unset/invalid": the footprint is emitted empty and projection
+  /// proceeds normally (never throws).
+  /// @param front_overhang_m Distance from the pose reference forward to the front bumper (m)
+  /// @param rear_overhang_m Distance from the pose reference back to the rear bumper (m)
+  /// @param body_width_m Body width (m); <= 0 disables the footprint
   DifferentialDriveProjector(
     DifferentialDriveModel model,
     double min_linear_velocity_m_s,
     double max_linear_velocity_m_s,
     double min_angular_velocity_rad_s,
-    double max_angular_velocity_rad_s)
+    double max_angular_velocity_rad_s,
+    double front_overhang_m = 0.0,
+    double rear_overhang_m = 0.0,
+    double body_width_m = 0.0)
   : model_(model)
   , min_linear_velocity_m_s_(min_linear_velocity_m_s)
   , max_linear_velocity_m_s_(max_linear_velocity_m_s)
   , min_angular_velocity_rad_s_(min_angular_velocity_rad_s)
   , max_angular_velocity_rad_s_(max_angular_velocity_rad_s)
+  , front_overhang_m_(front_overhang_m)
+  , rear_overhang_m_(rear_overhang_m)
+  , body_width_m_(body_width_m)
   {}
 
   ~DifferentialDriveProjector() = default;
@@ -122,12 +138,36 @@ public:
     return max_angular_velocity_rad_s_;
   }
 
+  double get_front_overhang_m() const
+  {
+    return front_overhang_m_;
+  }
+
+  double get_rear_overhang_m() const
+  {
+    return rear_overhang_m_;
+  }
+
+  double get_body_width_m() const
+  {
+    return body_width_m_;
+  }
+
 private:
+  /// @brief Fill state.footprint (world frame) from the pose already populated on `state`.
+  /// Emits an empty footprint when body_width_m_ <= 0.
+  /// TODO: (zeerek) surface footprint-invalid to the user (e.g. a validity flag / status enum on
+  /// the projected state) instead of silently emitting an empty Footprint.
+  void fillFootprint(DifferentialDriveProjectedState & state) const;
+
   DifferentialDriveModel model_;
   double min_linear_velocity_m_s_;
   double max_linear_velocity_m_s_;
   double min_angular_velocity_rad_s_;
   double max_angular_velocity_rad_s_;
+  double front_overhang_m_;
+  double rear_overhang_m_;
+  double body_width_m_;
 };
 
 }  // namespace polymath::kinematics

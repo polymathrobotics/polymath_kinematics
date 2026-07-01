@@ -322,3 +322,74 @@ class TestDifferentialDriveProjector:
         assert traj[-1].pose.x == pytest.approx(1.0)
         assert traj[-1].pose.y == pytest.approx(0.0)
         assert traj[-1].pose.theta == pytest.approx(0.0)
+
+
+class TestPoint2D:
+    def test_construction(self):
+        from polymath_kinematics import Point2D
+
+        point = Point2D(1.5, -2.0)
+        assert point.x == pytest.approx(1.5)
+        assert point.y == pytest.approx(-2.0)
+
+
+class TestProjectorFootprints:
+    def test_bicycle_no_dims_empty_footprint(self):
+        projector = BicycleProjector(BicycleModel(2.5, 1.5, 0.3), -0.6, 0.6)
+        result = projector.step(0.1, Pose2D(), 0.0, 0.0, 0.0, 1.0)
+        assert list(result.footprint) == []
+
+    def test_bicycle_footprint_corners(self):
+        projector = BicycleProjector(
+            BicycleModel(2.5, 1.5, 0.3),
+            -0.6,
+            0.6,
+            front_overhang_m=3.0,
+            rear_overhang_m=1.0,
+            body_width_m=2.0,
+        )
+        # v=0, zero steering: pose stays at origin, heading +x.
+        result = projector.step(0.1, Pose2D(), 0.0, 0.0, 0.0, 0.0)
+        corners = result.footprint
+        assert len(corners) == 4
+        assert corners[0].x == pytest.approx(-1.0)
+        assert corners[0].y == pytest.approx(-1.0)
+        assert corners[1].x == pytest.approx(3.0)
+        assert corners[2].y == pytest.approx(1.0)
+
+    def test_differential_footprint_corners(self):
+        projector = DifferentialDriveProjector(
+            DifferentialDriveModel(0.1, 0.5),
+            -2.0,
+            2.0,
+            -3.0,
+            3.0,
+            front_overhang_m=1.5,
+            rear_overhang_m=0.5,
+            body_width_m=1.0,
+        )
+        result = projector.step(0.1, Pose2D(), 0.0, 0.0, 0.0, 0.0, 100.0, 100.0)
+        assert len(result.footprint) == 4
+
+    def test_articulated_no_dims_empty_footprints(self):
+        projector = ArticulatedProjector(ArticulatedModel(1.66, 1.44, 2.0, 2.0, 0.723, 0.723), -0.785, 0.785)
+        result = projector.step(0.1, Pose2D(), 0.0, 0.0, 0.0, 1.0)
+        assert list(result.front_footprint) == []
+        assert list(result.rear_footprint) == []
+
+    def test_articulated_footprint_corners(self):
+        projector = ArticulatedProjector(
+            ArticulatedModel(1.66, 1.44, 2.0, 2.0, 0.723, 0.723),
+            -0.785,
+            0.785,
+            front_joint_to_bumper_m=2.2,
+            front_body_width_m=2.0,
+            rear_joint_to_bumper_m=2.0,
+            rear_body_width_m=2.0,
+        )
+        # Zero articulation, v=0: joint sits rear-arm (1.44) ahead of the rear axle along +x.
+        result = projector.step(0.1, Pose2D(), 0.0, 0.0, 0.0, 0.0)
+        assert len(result.front_footprint) == 4
+        assert len(result.rear_footprint) == 4
+        assert result.front_footprint[0].x == pytest.approx(1.44)
+        assert result.front_footprint[1].x == pytest.approx(1.44 + 2.2)

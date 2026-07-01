@@ -40,6 +40,7 @@ struct BicycleProjectedState
   double linear_velocity_m_s;  ///< Commanded linear velocity in m/s
   double angular_velocity_rad_s;  ///< Body angular velocity used for theta integration
   BicycleSteeringState steering_state;  ///< Full kinematic snapshot (wheel speeds + turning radius)
+  Footprint footprint;  ///< World-frame body polygon; empty if no footprint dims set
 };
 
 /// @brief Forward-projection wrapper around BicycleModel that ramps steering toward a target at
@@ -47,14 +48,32 @@ struct BicycleProjectedState
 class BicycleProjector
 {
 public:
-  /// @brief Construct a projector with steering-angle limits.
+  /// @brief Construct a projector with steering-angle limits and (optionally) footprint dims.
+  ///
+  /// Footprint dimensions describe the vehicle body relative to the pose reference and are owned
+  /// by the projector (the kinematic model stays dimension-free). The body is a rectangle
+  /// spanning [-rear_overhang_m, front_overhang_m] along the heading and `body_width_m` across.
+  /// A body width <= 0 means "unset/invalid": the footprint is emitted empty and projection
+  /// proceeds normally (never throws).
   /// @param model Bicycle kinematics model (stored by value)
   /// @param min_steering_angle_rad Minimum allowed steering angle (typically negative)
   /// @param max_steering_angle_rad Maximum allowed steering angle (typically positive)
-  BicycleProjector(BicycleModel model, double min_steering_angle_rad, double max_steering_angle_rad)
+  /// @param front_overhang_m Distance from the pose reference forward to the front bumper (m)
+  /// @param rear_overhang_m Distance from the pose reference back to the rear bumper (m)
+  /// @param body_width_m Body width (m); <= 0 disables the footprint
+  BicycleProjector(
+    BicycleModel model,
+    double min_steering_angle_rad,
+    double max_steering_angle_rad,
+    double front_overhang_m = 0.0,
+    double rear_overhang_m = 0.0,
+    double body_width_m = 0.0)
   : model_(model)
   , min_steering_angle_rad_(min_steering_angle_rad)
   , max_steering_angle_rad_(max_steering_angle_rad)
+  , front_overhang_m_(front_overhang_m)
+  , rear_overhang_m_(rear_overhang_m)
+  , body_width_m_(body_width_m)
   {}
 
   ~BicycleProjector() = default;
@@ -106,10 +125,34 @@ public:
     return max_steering_angle_rad_;
   }
 
+  double get_front_overhang_m() const
+  {
+    return front_overhang_m_;
+  }
+
+  double get_rear_overhang_m() const
+  {
+    return rear_overhang_m_;
+  }
+
+  double get_body_width_m() const
+  {
+    return body_width_m_;
+  }
+
 private:
+  /// @brief Fill state.footprint (world frame) from the pose already populated on `state`.
+  /// Emits an empty footprint when body_width_m_ <= 0.
+  /// TODO: (zeerek) surface footprint-invalid to the user (e.g. a validity flag / status enum on
+  /// the projected state) instead of silently emitting an empty Footprint.
+  void fillFootprint(BicycleProjectedState & state) const;
+
   BicycleModel model_;
   double min_steering_angle_rad_;
   double max_steering_angle_rad_;
+  double front_overhang_m_;
+  double rear_overhang_m_;
+  double body_width_m_;
 };
 
 }  // namespace polymath::kinematics

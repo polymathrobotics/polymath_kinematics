@@ -30,6 +30,7 @@ from polymath_kinematics_cpp import (
     DifferentialDriveProjectedState,
     DifferentialDriveProjector,
     DifferentialDriveWheelVelocities,
+    Point2D,
     Pose2D,
 )
 
@@ -49,6 +50,7 @@ __all__ = [
     'DifferentialDriveProjectedState',
     'DifferentialDriveProjector',
     'DifferentialDriveWheelVelocities',
+    'Point2D',
     'Pose2D',
     'Twist2D',
     'normalize_angle',
