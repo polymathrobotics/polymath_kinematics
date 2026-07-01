@@ -23,7 +23,13 @@ import numpy as np
 
 @dataclass
 class Trajectory:
-    """Base trajectory data with common fields."""
+    """Base trajectory data with common fields.
+
+    ``footprint_series``, when present, is the per-sample single-body footprint produced by the
+    C++ projector: an ``(N, 4, 2)`` array of world-frame polygon corners (N samples, 4 corners,
+    xy). It is ``None`` when the projector was given no footprint dimensions (single-body models
+    only; the articulated model uses the front/rear series on ``ArticulatedTrajectory``).
+    """
 
     time: np.ndarray
     x: np.ndarray
@@ -31,6 +37,7 @@ class Trajectory:
     theta: np.ndarray
     linear_velocity: float
     angular_velocity: float
+    footprint_series: Optional[np.ndarray] = None
 
     def __len__(self) -> int:
         return len(self.time)
@@ -75,6 +82,10 @@ class ArticulatedTrajectory(Trajectory):
     articulation_angle: float = 0.0
     turning_radius: float = 0.0
     articulation_angle_series: Optional[np.ndarray] = None
+    # Per-sample front/rear body footprints from the C++ projector, each an (N, 4, 2) array of
+    # world-frame polygon corners. None when the projector was given no footprint dimensions.
+    front_footprint_series: Optional[np.ndarray] = None
+    rear_footprint_series: Optional[np.ndarray] = None
 
 
 # Type alias for any trajectory type

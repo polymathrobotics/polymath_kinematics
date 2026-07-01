@@ -425,3 +425,61 @@ class TestSingleTrajectory:
         assert len(traj.articulation_angle_series) == len(traj.time)
         assert traj.articulation_angle_series[0] == pytest.approx(0.0)
         assert traj.articulation_angle_series[-1] == pytest.approx(0.4)
+
+    def test_single_bicycle_footprint_series_none_without_dims(self):
+        traj = single_bicycle_trajectory(
+            wheelbase=2.5,
+            track_width=1.5,
+            wheel_radius=0.3,
+            initial_steering_angle_rad=0.0,
+            target_steering_angle_rad=0.2,
+            steering_rate_rad_s=0.0,
+            drive_velocity=1.0,
+            duration=1.0,
+            time_step=0.1,
+        )
+        # No footprint dimensions passed → projector emits empty footprints → series is None.
+        assert traj.footprint_series is None
+
+    def test_single_bicycle_footprint_series_present_with_dims(self):
+        traj = single_bicycle_trajectory(
+            wheelbase=2.5,
+            track_width=1.5,
+            wheel_radius=0.3,
+            initial_steering_angle_rad=0.0,
+            target_steering_angle_rad=0.2,
+            steering_rate_rad_s=0.0,
+            drive_velocity=1.0,
+            duration=1.0,
+            time_step=0.1,
+            front_overhang_m=3.0,
+            rear_overhang_m=1.0,
+            body_width_m=1.5,
+        )
+        assert traj.footprint_series is not None
+        # (N samples, 4 corners, xy)
+        assert traj.footprint_series.shape == (len(traj.time), 4, 2)
+
+    def test_single_articulated_footprint_series_present_with_dims(self):
+        traj = single_articulated_trajectory(
+            articulation_to_front=1.66,
+            articulation_to_rear=1.44,
+            front_track=2.0,
+            rear_track=2.0,
+            front_wheel_radius=0.723,
+            rear_wheel_radius=0.723,
+            initial_articulation_angle_rad=0.0,
+            target_articulation_angle_rad=0.4,
+            articulation_rate_rad_s=0.5,
+            drive_velocity=1.0,
+            duration=1.0,
+            time_step=0.1,
+            front_joint_to_bumper_m=2.2,
+            front_body_width_m=2.0,
+            rear_joint_to_bumper_m=2.0,
+            rear_body_width_m=2.0,
+        )
+        assert traj.front_footprint_series is not None
+        assert traj.rear_footprint_series is not None
+        assert traj.front_footprint_series.shape == (len(traj.time), 4, 2)
+        assert traj.rear_footprint_series.shape == (len(traj.time), 4, 2)

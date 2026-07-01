@@ -22,24 +22,24 @@ namespace polymath::kinematics
 
 namespace
 {
-constexpr double kWheelbase = 2.5;
-constexpr double kTrack = 1.5;
-constexpr double kWheelRadius = 0.3;
-constexpr double kMinAngle = -0.6;
-constexpr double kMaxAngle = 0.6;
+constexpr double WHEELBASE = 2.5;
+constexpr double TRACK = 1.5;
+constexpr double WHEEL_RADIUS = 0.3;
+constexpr double MIN_ANGLE = -0.6;
+constexpr double MAX_ANGLE = 0.6;
 }  // namespace
 
 TEST_CASE("BicycleProjector construction stores model and limits")
 {
-  BicycleProjector projector(BicycleModel(kWheelbase, kTrack, kWheelRadius), kMinAngle, kMaxAngle);
-  CHECK(projector.get_min_steering_angle_rad() == Approx(kMinAngle));
-  CHECK(projector.get_max_steering_angle_rad() == Approx(kMaxAngle));
-  CHECK(projector.get_model().get_wheelbase_m() == Approx(kWheelbase));
+  BicycleProjector projector(BicycleModel(WHEELBASE, TRACK, WHEEL_RADIUS), MIN_ANGLE, MAX_ANGLE);
+  CHECK(projector.get_min_steering_angle_rad() == Approx(MIN_ANGLE));
+  CHECK(projector.get_max_steering_angle_rad() == Approx(MAX_ANGLE));
+  CHECK(projector.get_model().get_wheelbase_m() == Approx(WHEELBASE));
 }
 
 TEST_CASE("BicycleProjector step - zero rate freezes the steering angle")
 {
-  BicycleProjector projector(BicycleModel(kWheelbase, kTrack, kWheelRadius), kMinAngle, kMaxAngle);
+  BicycleProjector projector(BicycleModel(WHEELBASE, TRACK, WHEEL_RADIUS), MIN_ANGLE, MAX_ANGLE);
   Pose2D pose{0.0, 0.0, 0.0};
 
   auto result = projector.step(0.1, pose, 0.2, 0.5, 0.0, 1.0);
@@ -48,7 +48,7 @@ TEST_CASE("BicycleProjector step - zero rate freezes the steering angle")
 
 TEST_CASE("BicycleProjector step - large rate reaches target in one step without overshoot")
 {
-  BicycleProjector projector(BicycleModel(kWheelbase, kTrack, kWheelRadius), kMinAngle, kMaxAngle);
+  BicycleProjector projector(BicycleModel(WHEELBASE, TRACK, WHEEL_RADIUS), MIN_ANGLE, MAX_ANGLE);
   Pose2D pose{0.0, 0.0, 0.0};
 
   // |delta| = 0.3, max_delta = rate * dt = 10.0 * 0.1 = 1.0 >> 0.3 → snaps exactly to target.
@@ -58,7 +58,7 @@ TEST_CASE("BicycleProjector step - large rate reaches target in one step without
 
 TEST_CASE("BicycleProjector step - rate-limited slew advances by rate*dt toward target")
 {
-  BicycleProjector projector(BicycleModel(kWheelbase, kTrack, kWheelRadius), kMinAngle, kMaxAngle);
+  BicycleProjector projector(BicycleModel(WHEELBASE, TRACK, WHEEL_RADIUS), MIN_ANGLE, MAX_ANGLE);
   Pose2D pose{0.0, 0.0, 0.0};
 
   // rate*dt = 0.05, target far away → expect 0.05 increment.
@@ -68,7 +68,7 @@ TEST_CASE("BicycleProjector step - rate-limited slew advances by rate*dt toward 
 
 TEST_CASE("BicycleProjector step - negative steering rate is treated as magnitude")
 {
-  BicycleProjector projector(BicycleModel(kWheelbase, kTrack, kWheelRadius), kMinAngle, kMaxAngle);
+  BicycleProjector projector(BicycleModel(WHEELBASE, TRACK, WHEEL_RADIUS), MIN_ANGLE, MAX_ANGLE);
   Pose2D pose{0.0, 0.0, 0.0};
 
   auto result = projector.step(0.1, pose, 0.0, 0.5, -0.5, 1.0);
@@ -77,17 +77,17 @@ TEST_CASE("BicycleProjector step - negative steering rate is treated as magnitud
 
 TEST_CASE("BicycleProjector step - target above max saturates at max")
 {
-  BicycleProjector projector(BicycleModel(kWheelbase, kTrack, kWheelRadius), kMinAngle, kMaxAngle);
+  BicycleProjector projector(BicycleModel(WHEELBASE, TRACK, WHEEL_RADIUS), MIN_ANGLE, MAX_ANGLE);
   Pose2D pose{0.0, 0.0, 0.0};
 
   // With large rate the angle snaps to clamped_target == max.
   auto result = projector.step(0.1, pose, 0.0, 5.0, 100.0, 1.0);
-  CHECK(result.steering_angle_rad == Approx(kMaxAngle));
+  CHECK(result.steering_angle_rad == Approx(MAX_ANGLE));
 }
 
 TEST_CASE("BicycleProjector project - straight line traces +x with theta unchanged")
 {
-  BicycleProjector projector(BicycleModel(kWheelbase, kTrack, kWheelRadius), kMinAngle, kMaxAngle);
+  BicycleProjector projector(BicycleModel(WHEELBASE, TRACK, WHEEL_RADIUS), MIN_ANGLE, MAX_ANGLE);
   Pose2D pose{0.0, 0.0, 0.0};
 
   auto trajectory = projector.project(1.0, 0.1, pose, 0.0, 0.0, 1.0, 2.0);
@@ -103,7 +103,7 @@ TEST_CASE("BicycleProjector project - straight line traces +x with theta unchang
 
 TEST_CASE("BicycleProjector project - ramp reaches target in expected number of steps")
 {
-  BicycleProjector projector(BicycleModel(kWheelbase, kTrack, kWheelRadius), kMinAngle, kMaxAngle);
+  BicycleProjector projector(BicycleModel(WHEELBASE, TRACK, WHEEL_RADIUS), MIN_ANGLE, MAX_ANGLE);
   Pose2D pose{0.0, 0.0, 0.0};
 
   // target=0.5, rate=0.5, dt=0.1 → step adds 0.05; takes 10 steps to reach 0.5.
@@ -114,7 +114,7 @@ TEST_CASE("BicycleProjector project - ramp reaches target in expected number of 
 
 TEST_CASE("BicycleProjector project - sign symmetry: negating target mirrors trajectory across y=0")
 {
-  BicycleProjector projector(BicycleModel(kWheelbase, kTrack, kWheelRadius), kMinAngle, kMaxAngle);
+  BicycleProjector projector(BicycleModel(WHEELBASE, TRACK, WHEEL_RADIUS), MIN_ANGLE, MAX_ANGLE);
   Pose2D pose{0.0, 0.0, 0.0};
 
   auto left = projector.project(2.0, 0.05, pose, 0.0, 0.4, 1.0, 1.0);
@@ -131,7 +131,7 @@ TEST_CASE("BicycleProjector project - sign symmetry: negating target mirrors tra
 
 TEST_CASE("BicycleProjector project - initial state stored as element 0")
 {
-  BicycleProjector projector(BicycleModel(kWheelbase, kTrack, kWheelRadius), kMinAngle, kMaxAngle);
+  BicycleProjector projector(BicycleModel(WHEELBASE, TRACK, WHEEL_RADIUS), MIN_ANGLE, MAX_ANGLE);
   Pose2D pose{1.5, -2.0, 0.25};
 
   auto trajectory = projector.project(0.5, 0.1, pose, 0.1, 0.3, 0.5, 1.0);
@@ -140,6 +140,37 @@ TEST_CASE("BicycleProjector project - initial state stored as element 0")
   CHECK(trajectory.front().pose.y == Approx(-2.0));
   CHECK(trajectory.front().pose.theta == Approx(0.25));
   CHECK(trajectory.front().steering_angle_rad == Approx(0.1));
+}
+
+TEST_CASE("BicycleProjector - no footprint dims yields an empty footprint (never throws)")
+{
+  BicycleProjector projector(BicycleModel(WHEELBASE, TRACK, WHEEL_RADIUS), MIN_ANGLE, MAX_ANGLE);
+  Pose2D pose{0.0, 0.0, 0.0};
+  auto result = projector.step(0.1, pose, 0.0, 0.0, 0.0, 1.0);
+  CHECK(result.footprint.empty());
+}
+
+TEST_CASE("BicycleProjector footprint - rectangle corners at a known pose")
+{
+  constexpr double FRONT_OVERHANG = 3.0;
+  constexpr double REAR_OVERHANG = 1.0;
+  constexpr double BODY_WIDTH = 2.0;
+  BicycleProjector projector(
+    BicycleModel(WHEELBASE, TRACK, WHEEL_RADIUS), MIN_ANGLE, MAX_ANGLE, FRONT_OVERHANG, REAR_OVERHANG, BODY_WIDTH);
+
+  // v=0, zero steering: pose stays at the origin with heading +x.
+  Pose2D pose{0.0, 0.0, 0.0};
+  auto result = projector.step(0.1, pose, 0.0, 0.0, 0.0, 0.0);
+  REQUIRE(result.footprint.size() == 4);
+  // Body frame corners: rear-right, front-right, front-left, rear-left.
+  CHECK(result.footprint[0].x == Approx(-REAR_OVERHANG));
+  CHECK(result.footprint[0].y == Approx(-BODY_WIDTH / 2.0));
+  CHECK(result.footprint[1].x == Approx(FRONT_OVERHANG));
+  CHECK(result.footprint[1].y == Approx(-BODY_WIDTH / 2.0));
+  CHECK(result.footprint[2].x == Approx(FRONT_OVERHANG));
+  CHECK(result.footprint[2].y == Approx(BODY_WIDTH / 2.0));
+  CHECK(result.footprint[3].x == Approx(-REAR_OVERHANG));
+  CHECK(result.footprint[3].y == Approx(BODY_WIDTH / 2.0));
 }
 
 }  // namespace polymath::kinematics

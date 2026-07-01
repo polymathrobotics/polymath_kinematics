@@ -38,6 +38,8 @@ struct ArticulatedProjectedState
   double linear_velocity_m_s;  ///< Commanded linear velocity in m/s
   double angular_velocity_rad_s;  ///< Rear-axle turning rate used for theta integration
   ArticulatedVehicleState vehicle_state;  ///< Full kinematic snapshot (wheel speeds + turning radii)
+  Footprint front_footprint;  ///< World-frame front-body polygon; empty if no footprint dims set
+  Footprint rear_footprint;  ///< World-frame rear-body polygon; empty if no footprint dims set
 };
 
 /// @brief Forward-projection wrapper around ArticulatedModel. Ramps articulation angle (gamma)
@@ -46,14 +48,36 @@ struct ArticulatedProjectedState
 class ArticulatedProjector
 {
 public:
-  /// @brief Construct a projector with articulation-angle limits.
+  /// @brief Construct a projector with articulation-angle limits and (optionally) footprint dims.
+  ///
+  /// Footprint dimensions describe the two vehicle bodies relative to the articulation joint and
+  /// are owned by the projector (the kinematic model stays dimension-free). Each body is a
+  /// rectangle: the front body extends `front_joint_to_bumper_m` ahead of the joint along the
+  /// front-body heading; the rear body extends `rear_joint_to_bumper_m` behind the joint along
+  /// the rear-body heading. A body width <= 0 means "unset/invalid": that body's footprint is
+  /// emitted empty and projection proceeds normally (never throws).
   /// @param model Articulated kinematics model (stored by value)
   /// @param min_articulation_angle_rad Minimum allowed articulation angle (typically negative)
   /// @param max_articulation_angle_rad Maximum allowed articulation angle (typically positive)
-  ArticulatedProjector(ArticulatedModel model, double min_articulation_angle_rad, double max_articulation_angle_rad)
+  /// @param front_joint_to_bumper_m Front-body length from joint to front bumper (m)
+  /// @param front_body_width_m Front-body width (m); <= 0 disables the front footprint
+  /// @param rear_joint_to_bumper_m Rear-body length from joint to rear bumper (m)
+  /// @param rear_body_width_m Rear-body width (m); <= 0 disables the rear footprint
+  ArticulatedProjector(
+    ArticulatedModel model,
+    double min_articulation_angle_rad,
+    double max_articulation_angle_rad,
+    double front_joint_to_bumper_m = 0.0,
+    double front_body_width_m = 0.0,
+    double rear_joint_to_bumper_m = 0.0,
+    double rear_body_width_m = 0.0)
   : model_(model)
   , min_articulation_angle_rad_(min_articulation_angle_rad)
   , max_articulation_angle_rad_(max_articulation_angle_rad)
+  , front_joint_to_bumper_m_(front_joint_to_bumper_m)
+  , front_body_width_m_(front_body_width_m)
+  , rear_joint_to_bumper_m_(rear_joint_to_bumper_m)
+  , rear_body_width_m_(rear_body_width_m)
   {}
 
   ~ArticulatedProjector() = default;
@@ -105,10 +129,41 @@ public:
     return max_articulation_angle_rad_;
   }
 
+  double get_front_joint_to_bumper_m() const
+  {
+    return front_joint_to_bumper_m_;
+  }
+
+  double get_front_body_width_m() const
+  {
+    return front_body_width_m_;
+  }
+
+  double get_rear_joint_to_bumper_m() const
+  {
+    return rear_joint_to_bumper_m_;
+  }
+
+  double get_rear_body_width_m() const
+  {
+    return rear_body_width_m_;
+  }
+
 private:
+  /// @brief Fill state.front_footprint / state.rear_footprint (world frame) from the rear-segment
+  /// pose and articulation angle already populated on `state`. A body with width <= 0 yields an
+  /// empty footprint.
+  /// TODO: (zeerek) surface footprint-invalid to the user (e.g. a validity flag / status enum on
+  /// the projected state) instead of silently emitting an empty Footprint.
+  void fillFootprints(ArticulatedProjectedState & state) const;
+
   ArticulatedModel model_;
   double min_articulation_angle_rad_;
   double max_articulation_angle_rad_;
+  double front_joint_to_bumper_m_;
+  double front_body_width_m_;
+  double rear_joint_to_bumper_m_;
+  double rear_body_width_m_;
 };
 
 }  // namespace polymath::kinematics

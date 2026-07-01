@@ -22,28 +22,28 @@ namespace polymath::kinematics
 
 namespace
 {
-constexpr double kWheelRadius = 0.1;
-constexpr double kTrackWidth = 0.5;
-constexpr double kVMin = -2.0;
-constexpr double kVMax = 2.0;
-constexpr double kOmegaMin = -3.0;
-constexpr double kOmegaMax = 3.0;
+constexpr double WHEEL_RADIUS = 0.1;
+constexpr double TRACK_WIDTH = 0.5;
+constexpr double V_MIN = -2.0;
+constexpr double V_MAX = 2.0;
+constexpr double OMEGA_MIN = -3.0;
+constexpr double OMEGA_MAX = 3.0;
 
 DifferentialDriveProjector makeProjector()
 {
   return DifferentialDriveProjector(
-    DifferentialDriveModel(kWheelRadius, kTrackWidth), kVMin, kVMax, kOmegaMin, kOmegaMax);
+    DifferentialDriveModel(WHEEL_RADIUS, TRACK_WIDTH), V_MIN, V_MAX, OMEGA_MIN, OMEGA_MAX);
 }
 }  // namespace
 
 TEST_CASE("DifferentialDriveProjector construction stores model and limits")
 {
   auto projector = makeProjector();
-  CHECK(projector.get_min_linear_velocity_m_s() == Approx(kVMin));
-  CHECK(projector.get_max_linear_velocity_m_s() == Approx(kVMax));
-  CHECK(projector.get_min_angular_velocity_rad_s() == Approx(kOmegaMin));
-  CHECK(projector.get_max_angular_velocity_rad_s() == Approx(kOmegaMax));
-  CHECK(projector.get_model().get_wheel_radius_m() == Approx(kWheelRadius));
+  CHECK(projector.get_min_linear_velocity_m_s() == Approx(V_MIN));
+  CHECK(projector.get_max_linear_velocity_m_s() == Approx(V_MAX));
+  CHECK(projector.get_min_angular_velocity_rad_s() == Approx(OMEGA_MIN));
+  CHECK(projector.get_max_angular_velocity_rad_s() == Approx(OMEGA_MAX));
+  CHECK(projector.get_model().get_wheel_radius_m() == Approx(WHEEL_RADIUS));
 }
 
 TEST_CASE("DifferentialDriveProjector step - zero acceleration freezes both velocities")
@@ -80,8 +80,8 @@ TEST_CASE("DifferentialDriveProjector step - target above linear max saturates a
   auto projector = makeProjector();
   Pose2D pose{0.0, 0.0, 0.0};
   auto result = projector.step(0.1, pose, 0.0, 0.0, 100.0, 100.0, 1000.0, 1000.0);
-  CHECK(result.linear_velocity_m_s == Approx(kVMax));
-  CHECK(result.angular_velocity_rad_s == Approx(kOmegaMax));
+  CHECK(result.linear_velocity_m_s == Approx(V_MAX));
+  CHECK(result.angular_velocity_rad_s == Approx(OMEGA_MAX));
 }
 
 TEST_CASE("DifferentialDriveProjector step - negative acceleration is treated as magnitude")
@@ -128,6 +128,44 @@ TEST_CASE("DifferentialDriveProjector step - wheel speeds derive from body comma
   auto result = projector.step(0.1, pose, 0.0, 0.0, 1.0, 0.0, 100.0, 100.0);
   CHECK(result.wheel_velocities.left_wheel_velocity_rad_s == Approx(10.0));
   CHECK(result.wheel_velocities.right_wheel_velocity_rad_s == Approx(10.0));
+}
+
+TEST_CASE("DifferentialDriveProjector - no footprint dims yields an empty footprint (never throws)")
+{
+  auto projector = makeProjector();
+  Pose2D pose{0.0, 0.0, 0.0};
+  auto result = projector.step(0.1, pose, 0.0, 0.0, 0.0, 0.0, 100.0, 100.0);
+  CHECK(result.footprint.empty());
+}
+
+TEST_CASE("DifferentialDriveProjector footprint - rectangle corners rotated by heading")
+{
+  constexpr double FRONT_OVERHANG = 1.5;
+  constexpr double REAR_OVERHANG = 0.5;
+  constexpr double BODY_WIDTH = 1.0;
+  DifferentialDriveProjector projector(
+    DifferentialDriveModel(WHEEL_RADIUS, TRACK_WIDTH),
+    V_MIN,
+    V_MAX,
+    OMEGA_MIN,
+    OMEGA_MAX,
+    FRONT_OVERHANG,
+    REAR_OVERHANG,
+    BODY_WIDTH);
+
+  // Heading = +90 deg (theta = pi/2), v=0 so pose stays at the origin.
+  const double theta = M_PI / 2.0;
+  Pose2D pose{0.0, 0.0, theta};
+  auto result = projector.step(0.1, pose, 0.0, 0.0, 0.0, 0.0, 100.0, 100.0);
+  REQUIRE(result.footprint.size() == 4);
+  // Body-frame front-right corner (FRONT_OVERHANG, -BODY_WIDTH/2) rotated by +90deg:
+  // world = (+BODY_WIDTH/2, FRONT_OVERHANG).
+  CHECK(result.footprint[1].x == Approx(BODY_WIDTH / 2.0));
+  CHECK(result.footprint[1].y == Approx(FRONT_OVERHANG));
+  // Body-frame rear-right corner (-REAR_OVERHANG, -BODY_WIDTH/2) rotated by +90deg:
+  // world = (+BODY_WIDTH/2, -REAR_OVERHANG).
+  CHECK(result.footprint[0].x == Approx(BODY_WIDTH / 2.0));
+  CHECK(result.footprint[0].y == Approx(-REAR_OVERHANG));
 }
 
 }  // namespace polymath::kinematics

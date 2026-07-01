@@ -46,6 +46,7 @@ from polymath_kinematics.explorer import (
     single_differential_trajectory,
     trajectories_to_dataframe,
 )
+from polymath_kinematics.explorer.config import FRONT_OVERHANG, REAR_AXLE_POSITION
 from polymath_kinematics.explorer.plotting import _get_traj_attr
 
 
@@ -76,7 +77,17 @@ def _cached_lattice_bicycle(
     method: str,
 ) -> list[BicycleTrajectory]:
     return generate_lattice_bicycle(
-        wheelbase, track_width, wheel_radius, drive_velocities, steering_angles, duration, time_step, method
+        wheelbase,
+        track_width,
+        wheel_radius,
+        drive_velocities,
+        steering_angles,
+        duration,
+        time_step,
+        method,
+        front_overhang_m=wheelbase * FRONT_OVERHANG,
+        rear_overhang_m=wheelbase * REAR_AXLE_POSITION,
+        body_width_m=track_width,
     )
 
 
@@ -106,6 +117,10 @@ def _cached_lattice_articulated(
         duration,
         time_step,
         method,
+        front_joint_to_bumper_m=articulation_to_front,
+        front_body_width_m=front_track,
+        rear_joint_to_bumper_m=articulation_to_rear,
+        rear_body_width_m=rear_track,
     )
 
 
@@ -131,6 +146,9 @@ def _cached_single_bicycle(
         drive_velocity=drive_velocity,
         duration=duration,
         time_step=time_step,
+        front_overhang_m=wheelbase * FRONT_OVERHANG,
+        rear_overhang_m=wheelbase * REAR_AXLE_POSITION,
+        body_width_m=track_width,
     )
 
 
@@ -162,6 +180,10 @@ def _cached_single_articulated(
         drive_velocity=drive_velocity,
         duration=duration,
         time_step=time_step,
+        front_joint_to_bumper_m=articulation_to_front,
+        front_body_width_m=front_track,
+        rear_joint_to_bumper_m=articulation_to_rear,
+        rear_body_width_m=rear_track,
     )
 
 
@@ -178,6 +200,8 @@ def _cached_single_differential(
     duration: float,
     time_step: float,
 ) -> DifferentialTrajectory:
+    # Vehicle length is track_width * 1.5 to match the plotted footprint box.
+    length = track_width * 1.5
     return single_differential_trajectory(
         wheel_radius,
         track_width,
@@ -189,6 +213,9 @@ def _cached_single_differential(
         angular_acceleration=angular_acceleration,
         duration=duration,
         time_step=time_step,
+        front_overhang_m=length * FRONT_OVERHANG,
+        rear_overhang_m=length * REAR_AXLE_POSITION,
+        body_width_m=track_width,
     )
 
 
