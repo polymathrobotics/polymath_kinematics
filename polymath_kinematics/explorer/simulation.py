@@ -13,11 +13,9 @@
 # limitations under the License.
 """Trajectory simulation and lattice generation functions.
 
-Bicycle and articulated lattices are generated via the C++ BicycleProjector /
-ArticulatedProjector forward-simulation classes (Euler integration with
-steering-rate ramping support). The differential drive lattice keeps a
-vectorized Euler integration here because there is no DifferentialDriveProjector
-in the C++ library.
+Every trajectory comes from the matching C++ projector, so the explorer and the production
+kinematics share one forward-simulation codepath. Lattice cells set initial == target to hold
+a constant command; the single-trajectory helpers drive initial != target to show the ramp.
 
 All functions are pure (no streamlit dependency) for testability and reuse.
 """
@@ -29,104 +27,16 @@ import numpy as np
 from polymath_kinematics import (
     ArticulatedModel,
     ArticulatedProjector,
+    AxleReference,
     BicycleModel,
     BicycleProjector,
     DifferentialDriveModel,
     DifferentialDriveProjector,
+    Footprint,
     Pose2D,
 )
 
 from .types import ArticulatedTrajectory, BicycleTrajectory, DifferentialTrajectory
-
-
-def simulate_trajectory_euler(
-    linear_velocity: float,
-    angular_velocity: float,
-    duration: float = 5.0,
-    time_step: float = 0.02,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """Simulate trajectory using vectorized Euler integration.
-
-    For constant angular velocity, theta is analytic: theta(t) = omega * t.
-    This allows fully vectorized computation of x and y via cumulative sum.
-
-    Returns:
-        Tuple of (time, x, y, theta) arrays
-    """
-    num_steps = int(duration / time_step)
-    time_array = np.linspace(0, duration, num_steps)
-
-    # Theta is analytic for constant angular velocity
-    theta = angular_velocity * time_array
-
-    # Compute velocities at each timestep (vectorized)
-    velocity_x = linear_velocity * np.cos(theta)
-    velocity_y = linear_velocity * np.sin(theta)
-
-    # Integrate via cumulative sum (Euler method, vectorized)
-    x = np.concatenate([[0], np.cumsum(velocity_x[:-1]) * time_step])
-    y = np.concatenate([[0], np.cumsum(velocity_y[:-1]) * time_step])
-
-    return time_array, x, y, theta
-
-
-def simulate_trajectory_rk4(
-    linear_velocity: float,
-    angular_velocity: float,
-    duration: float = 5.0,
-    time_step: float = 0.02,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """Simulate trajectory using 4th-order Runge-Kutta integration.
-
-    For constant angular velocity, we can still vectorize theta, then use
-    RK4-style weighted averaging for x and y positions.
-
-    Returns:
-        Tuple of (time, x, y, theta) arrays
-    """
-    num_steps = int(duration / time_step)
-    time_array = np.linspace(0, duration, num_steps)
-
-    theta = angular_velocity * time_array
-    theta_prev = theta[:-1]
-    theta_mid = theta_prev + angular_velocity * time_step / 2
-    theta_next = theta_prev + angular_velocity * time_step
-
-    k1_x = linear_velocity * np.cos(theta_prev)
-    k1_y = linear_velocity * np.sin(theta_prev)
-    k2_x = linear_velocity * np.cos(theta_mid)
-    k2_y = linear_velocity * np.sin(theta_mid)
-    k4_x = linear_velocity * np.cos(theta_next)
-    k4_y = linear_velocity * np.sin(theta_next)
-
-    delta_x = (k1_x + 4 * k2_x + k4_x) / 6 * time_step
-    delta_y = (k1_y + 4 * k2_y + k4_y) / 6 * time_step
-
-    x = np.concatenate([[0], np.cumsum(delta_x)])
-    y = np.concatenate([[0], np.cumsum(delta_y)])
-
-    return time_array, x, y, theta
-
-
-def simulate_trajectory(
-    linear_velocity: float,
-    angular_velocity: float,
-    duration: float = 5.0,
-    time_step: float = 0.02,
-    method: str = 'euler',
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """Simulate a constant-cmd_vel trajectory.
-
-    Args:
-        linear_velocity: Linear velocity (m/s)
-        angular_velocity: Angular velocity (rad/s)
-        duration: Simulation duration (s)
-        time_step: Time step (s)
-        method: Integration method ("euler" or "rk4")
-    """
-    if method == 'rk4':
-        return simulate_trajectory_rk4(linear_velocity, angular_velocity, duration, time_step)
-    return simulate_trajectory_euler(linear_velocity, angular_velocity, duration, time_step)
 
 
 def _states_to_arrays(states):
@@ -147,12 +57,12 @@ def _states_to_arrays(states):
 
 
 def _footprint_series(states, attr: str):
-    """Stack the per-sample footprint polygons from a projection into an (N, 4, 2) array.
+    """Stack the per-sample footprint polygons from a projection into an (N, V, 2) array.
 
     ``attr`` is the projected-state attribute holding the footprint (``footprint`` for single-body
-    models, ``front_footprint`` / ``rear_footprint`` for articulated). Returns ``None`` if any
-    sample has an empty footprint (i.e. the projector was given no footprint dimensions), so
-    downstream consumers can fall back cleanly.
+    models, ``front_footprint`` / ``rear_footprint`` for articulated). V is the polygon's vertex
+    count. Returns ``None`` if any sample has an empty footprint (no footprint was set on the
+    projector), so downstream consumers can fall back cleanly.
     """
     corners = []
     for s in states:
@@ -163,6 +73,11 @@ def _footprint_series(states, attr: str):
     return np.asarray(corners, dtype=float)
 
 
+def _joint_pose_series(states):
+    """Stack the articulated projector's per-sample joint pose into an (N, 3) [x, y, theta] array."""
+    return np.asarray([[s.joint_pose.x, s.joint_pose.y, s.joint_pose.theta] for s in states], dtype=float)
+
+
 def generate_lattice_differential(
     wheel_radius: float,
     track_width: float,
@@ -170,38 +85,73 @@ def generate_lattice_differential(
     wheel_velocity_diffs: tuple[float, ...],
     duration: float,
     time_step: float = 0.02,
-    method: str = 'euler',
+    footprint: Footprint | None = None,
 ) -> list[DifferentialTrajectory]:
-    """Generate trajectory lattice by sweeping wheel velocity differences."""
-    model = DifferentialDriveModel(wheel_radius, track_width)
-    trajectories: list[DifferentialTrajectory] = []
+    """Generate trajectory lattice by sweeping wheel velocity differences.
 
+    Each wheel-velocity pair becomes a body command, then a constant-command projection.
+    """
+    model = DifferentialDriveModel(wheel_radius, track_width)
+
+    # Resolve all cells first: the projector bounds must bracket the sweep, or outer cells clamp.
+    cells = []
     for base_velocity in base_wheel_velocities:
         for velocity_diff in wheel_velocity_diffs:
             left_wheel = base_velocity - velocity_diff / 2
             right_wheel = base_velocity + velocity_diff / 2
-
             body_velocity = model.wheel_velocities_to_body_velocity(left_wheel, right_wheel)
-            linear_velocity = body_velocity.linear_velocity_m_s
-            angular_velocity = body_velocity.angular_velocity_rad_s
+            cells.append((
+                base_velocity,
+                left_wheel,
+                right_wheel,
+                body_velocity.linear_velocity_m_s,
+                body_velocity.angular_velocity_rad_s,
+            ))
 
-            time_array, x, y, theta = simulate_trajectory(
-                linear_velocity, angular_velocity, duration, time_step, method
-            )
+    if not cells:
+        return []
 
-            trajectories.append(
-                DifferentialTrajectory(
-                    time=time_array,
-                    x=x,
-                    y=y,
-                    theta=theta,
-                    linear_velocity=linear_velocity,
-                    angular_velocity=angular_velocity,
-                    left_wheel=left_wheel,
-                    right_wheel=right_wheel,
-                    base_wheel_velocity=base_velocity,
-                )
+    linear_velocities = [cell[3] for cell in cells]
+    angular_velocities = [cell[4] for cell in cells]
+    projector = DifferentialDriveProjector(
+        model,
+        min(linear_velocities),
+        max(linear_velocities),
+        min(angular_velocities),
+        max(angular_velocities),
+        footprint or [],
+    )
+
+    trajectories: list[DifferentialTrajectory] = []
+    for base_velocity, left_wheel, right_wheel, linear_velocity, angular_velocity in cells:
+        states = projector.project(
+            horizon_s=duration,
+            dt_s=time_step,
+            initial_pose=Pose2D(),
+            initial_linear_velocity_m_s=linear_velocity,
+            initial_angular_velocity_rad_s=angular_velocity,
+            target_linear_velocity_m_s=linear_velocity,
+            target_angular_velocity_rad_s=angular_velocity,
+            # initial == target, so the ramp never fires and the acceleration is irrelevant.
+            linear_acceleration_m_s2=0.0,
+            angular_acceleration_rad_s2=0.0,
+        )
+        time_arr, x_arr, y_arr, theta_arr, _omega = _states_to_arrays(states)
+
+        trajectories.append(
+            DifferentialTrajectory(
+                time=time_arr,
+                x=x_arr,
+                y=y_arr,
+                theta=theta_arr,
+                linear_velocity=linear_velocity,
+                angular_velocity=angular_velocity,
+                left_wheel=left_wheel,
+                right_wheel=right_wheel,
+                base_wheel_velocity=base_velocity,
+                footprint_series=_footprint_series(states, 'footprint'),
             )
+        )
 
     return trajectories
 
@@ -214,13 +164,11 @@ def generate_lattice_bicycle(
     steering_angles: tuple[float, ...],
     duration: float,
     time_step: float = 0.02,
-    method: str = 'euler',  # accepted for API compatibility; projector is Euler-only
     min_steering_angle_rad: float | None = None,
     max_steering_angle_rad: float | None = None,
     steering_rate_rad_s: float = 0.0,
-    front_overhang_m: float = 0.0,
-    rear_overhang_m: float = 0.0,
-    body_width_m: float = 0.0,
+    axle_reference: AxleReference = AxleReference.REAR,
+    footprint: Footprint | None = None,
 ) -> list[BicycleTrajectory]:
     """Generate trajectory lattice by sweeping steering angles.
 
@@ -230,12 +178,7 @@ def generate_lattice_bicycle(
     exposed for future use; with a non-zero value and ``min/max`` set, the
     projector will ramp toward the target — but a constant-input lattice
     is the typical use.
-
-    Note: ``method`` is accepted for backward compatibility but ignored. The
-    projector uses Euler integration only; RK4 trajectory generation has
-    been retired in favor of a single forward-simulation codepath.
     """
-    del method  # accepted for API compat; projector is Euler-only.
     angles = list(steering_angles)
     if not angles:
         return []
@@ -243,9 +186,7 @@ def generate_lattice_bicycle(
     max_angle = max_steering_angle_rad if max_steering_angle_rad is not None else max(angles)
 
     model = BicycleModel(wheelbase, track_width, wheel_radius)
-    projector = BicycleProjector(
-        model, min_angle, max_angle, front_overhang_m, rear_overhang_m, body_width_m
-    )
+    projector = BicycleProjector(model, min_angle, max_angle, axle_reference, footprint or [])
 
     trajectories: list[BicycleTrajectory] = []
     for drive_velocity in drive_velocities:
@@ -290,21 +231,17 @@ def generate_lattice_articulated(
     articulation_angles: tuple[float, ...],
     duration: float,
     time_step: float = 0.02,
-    method: str = 'euler',  # accepted for API compatibility; projector is Euler-only
     min_articulation_angle_rad: float | None = None,
     max_articulation_angle_rad: float | None = None,
     articulation_rate_rad_s: float = 0.0,
-    front_joint_to_bumper_m: float = 0.0,
-    front_body_width_m: float = 0.0,
-    rear_joint_to_bumper_m: float = 0.0,
-    rear_body_width_m: float = 0.0,
+    axle_reference: AxleReference = AxleReference.REAR,
+    front_footprint: Footprint | None = None,
+    rear_footprint: Footprint | None = None,
 ) -> list[ArticulatedTrajectory]:
     """Generate trajectory lattice by sweeping articulation angles.
 
-    See ``generate_lattice_bicycle`` for the projector-based rationale and
-    the meaning of ``method``.
+    See ``generate_lattice_bicycle`` for the projector-based rationale.
     """
-    del method  # accepted for API compat; projector is Euler-only.
     angles = list(articulation_angles)
     if not angles:
         return []
@@ -320,13 +257,7 @@ def generate_lattice_articulated(
         rear_wheel_radius,
     )
     projector = ArticulatedProjector(
-        model,
-        min_angle,
-        max_angle,
-        front_joint_to_bumper_m,
-        front_body_width_m,
-        rear_joint_to_bumper_m,
-        rear_body_width_m,
+        model, min_angle, max_angle, axle_reference, front_footprint or [], rear_footprint or []
     )
 
     trajectories: list[ArticulatedTrajectory] = []
@@ -356,6 +287,7 @@ def generate_lattice_articulated(
                     turning_radius=states[0].vehicle_state.front_axle_turning_radius_m,
                     front_footprint_series=_footprint_series(states, 'front_footprint'),
                     rear_footprint_series=_footprint_series(states, 'rear_footprint'),
+                    joint_pose_series=_joint_pose_series(states),
                 )
             )
 
@@ -382,9 +314,8 @@ def single_bicycle_trajectory(
     time_step: float = 0.02,
     min_steering_angle_rad: float | None = None,
     max_steering_angle_rad: float | None = None,
-    front_overhang_m: float = 0.0,
-    rear_overhang_m: float = 0.0,
-    body_width_m: float = 0.0,
+    axle_reference: AxleReference = AxleReference.REAR,
+    footprint: Footprint | None = None,
 ) -> BicycleTrajectory:
     """Ramp a bicycle steering angle from `initial` toward `target` at `rate` rad/s
     over `duration` seconds, returning the resulting trajectory.
@@ -398,9 +329,7 @@ def single_bicycle_trajectory(
         max_steering_angle_rad = max(initial_steering_angle_rad, target_steering_angle_rad)
 
     model = BicycleModel(wheelbase, track_width, wheel_radius)
-    projector = BicycleProjector(
-        model, min_steering_angle_rad, max_steering_angle_rad, front_overhang_m, rear_overhang_m, body_width_m
-    )
+    projector = BicycleProjector(model, min_steering_angle_rad, max_steering_angle_rad, axle_reference, footprint or [])
     states = projector.project(
         horizon_s=duration,
         dt_s=time_step,
@@ -442,10 +371,9 @@ def single_articulated_trajectory(
     time_step: float = 0.02,
     min_articulation_angle_rad: float | None = None,
     max_articulation_angle_rad: float | None = None,
-    front_joint_to_bumper_m: float = 0.0,
-    front_body_width_m: float = 0.0,
-    rear_joint_to_bumper_m: float = 0.0,
-    rear_body_width_m: float = 0.0,
+    axle_reference: AxleReference = AxleReference.REAR,
+    front_footprint: Footprint | None = None,
+    rear_footprint: Footprint | None = None,
 ) -> ArticulatedTrajectory:
     """Ramp an articulation angle from `initial` toward `target` at `rate` rad/s."""
     if min_articulation_angle_rad is None:
@@ -465,10 +393,9 @@ def single_articulated_trajectory(
         model,
         min_articulation_angle_rad,
         max_articulation_angle_rad,
-        front_joint_to_bumper_m,
-        front_body_width_m,
-        rear_joint_to_bumper_m,
-        rear_body_width_m,
+        axle_reference,
+        front_footprint or [],
+        rear_footprint or [],
     )
     states = projector.project(
         horizon_s=duration,
@@ -494,6 +421,7 @@ def single_articulated_trajectory(
         articulation_angle_series=articulation_series,
         front_footprint_series=_footprint_series(states, 'front_footprint'),
         rear_footprint_series=_footprint_series(states, 'rear_footprint'),
+        joint_pose_series=_joint_pose_series(states),
     )
 
 
@@ -512,9 +440,7 @@ def single_differential_trajectory(
     max_linear_velocity: float | None = None,
     min_angular_velocity: float | None = None,
     max_angular_velocity: float | None = None,
-    front_overhang_m: float = 0.0,
-    rear_overhang_m: float = 0.0,
-    body_width_m: float = 0.0,
+    footprint: Footprint | None = None,
 ) -> DifferentialTrajectory:
     """Ramp diff-drive body command (v, omega) from initial toward target at the
     given accelerations, integrating pose forward over `duration`.
@@ -535,9 +461,7 @@ def single_differential_trajectory(
         max_linear_velocity,
         min_angular_velocity,
         max_angular_velocity,
-        front_overhang_m,
-        rear_overhang_m,
-        body_width_m,
+        footprint or [],
     )
     states = projector.project(
         horizon_s=duration,

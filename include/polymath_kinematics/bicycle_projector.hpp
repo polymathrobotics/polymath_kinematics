@@ -15,18 +15,11 @@
 #ifndef POLYMATH_KINEMATICS__BICYCLE_PROJECTOR_HPP__
 #define POLYMATH_KINEMATICS__BICYCLE_PROJECTOR_HPP__
 
+#include <utility>
 #include <vector>
 
 #include "polymath_kinematics/bicycle_model.hpp"
 #include "polymath_kinematics/pose2d.hpp"
-
-// TODO(naming): when this projector is in wide use, consider renaming the underlying
-// BicycleModel methods for clarity:
-//   - bodyVelocityToSteering   -> inverseKinematics
-//   - steeringToBodyVelocity   -> forwardKinematics
-// And dropping the _m / _rad / _rad_s unit suffixes from struct fields (units in docs).
-// Also unify the Python Pose2D in polymath_kinematics/__init__.py with the C++ Pose2D
-// bound here.
 
 namespace polymath::kinematics
 {
@@ -35,45 +28,46 @@ namespace polymath::kinematics
 struct BicycleProjectedState
 {
   double time_s;  ///< Elapsed time from the start of the projection
-  Pose2D pose;  ///< Body pose at this sample
+  Pose2D pose;  ///< Body pose at the projector's reference axle; theta is the chassis heading
   double steering_angle_rad;  ///< Post-ramp steering angle in radians
   double linear_velocity_m_s;  ///< Commanded linear velocity in m/s
   double angular_velocity_rad_s;  ///< Body angular velocity used for theta integration
   BicycleSteeringState steering_state;  ///< Full kinematic snapshot (wheel speeds + turning radius)
-  Footprint footprint;  ///< World-frame body polygon; empty if no footprint dims set
+  Footprint footprint;  ///< World-frame body polygon; empty if no footprint was set
 };
 
 /// @brief Forward-projection wrapper around BicycleModel that ramps steering toward a target at
 /// a bounded rate, clamping the target to [min, max] before ramping, and integrates pose with Euler.
+///
+/// Poses and the body-frame footprint are both measured from the axle named by `axle_reference`.
+/// Motion is always integrated at the rear axle (where the bicycle model is defined); a FRONT
+/// reference is a rigid wheelbase offset along the chassis heading, applied on input and output.
 class BicycleProjector
 {
 public:
-  /// @brief Construct a projector with steering-angle limits and (optionally) footprint dims.
+  /// @brief Construct a projector with steering-angle limits and (optionally) a body footprint.
   ///
-  /// Footprint dimensions describe the vehicle body relative to the pose reference and are owned
-  /// by the projector (the kinematic model stays dimension-free). The body is a rectangle
-  /// spanning [-rear_overhang_m, front_overhang_m] along the heading and `body_width_m` across.
-  /// A body width <= 0 means "unset/invalid": the footprint is emitted empty and projection
-  /// proceeds normally (never throws).
+  /// The footprint is an arbitrary polygon in the body frame of `axle_reference`: +x along the
+  /// chassis heading, +y to the left, origin at that axle. It is owned by the projector, so the
+  /// kinematic model stays dimension-free. An empty footprint means "unset": projected states
+  /// carry an empty footprint and projection proceeds normally (never throws). Use
+  /// `rectangleFootprint()` for a boxy vehicle.
   /// @param model Bicycle kinematics model (stored by value)
   /// @param min_steering_angle_rad Minimum allowed steering angle (typically negative)
   /// @param max_steering_angle_rad Maximum allowed steering angle (typically positive)
-  /// @param front_overhang_m Distance from the pose reference forward to the front bumper (m)
-  /// @param rear_overhang_m Distance from the pose reference back to the rear bumper (m)
-  /// @param body_width_m Body width (m); <= 0 disables the footprint
+  /// @param axle_reference Axle that poses and the footprint are measured from
+  /// @param footprint Body-frame body polygon; empty disables footprint output
   BicycleProjector(
     BicycleModel model,
     double min_steering_angle_rad,
     double max_steering_angle_rad,
-    double front_overhang_m = 0.0,
-    double rear_overhang_m = 0.0,
-    double body_width_m = 0.0)
+    AxleReference axle_reference = AxleReference::REAR,
+    Footprint footprint = {})
   : model_(model)
   , min_steering_angle_rad_(min_steering_angle_rad)
   , max_steering_angle_rad_(max_steering_angle_rad)
-  , front_overhang_m_(front_overhang_m)
-  , rear_overhang_m_(rear_overhang_m)
-  , body_width_m_(body_width_m)
+  , axle_reference_(axle_reference)
+  , footprint_(std::move(footprint))
   {}
 
   ~BicycleProjector() = default;
@@ -125,34 +119,28 @@ public:
     return max_steering_angle_rad_;
   }
 
-  double get_front_overhang_m() const
+  AxleReference get_axle_reference() const
   {
-    return front_overhang_m_;
+    return axle_reference_;
   }
 
-  double get_rear_overhang_m() const
+  const Footprint & get_footprint() const
   {
-    return rear_overhang_m_;
-  }
-
-  double get_body_width_m() const
-  {
-    return body_width_m_;
+    return footprint_;
   }
 
 private:
-  /// @brief Fill state.footprint (world frame) from the pose already populated on `state`.
-  /// Emits an empty footprint when body_width_m_ <= 0.
-  /// TODO: (zeerek) surface footprint-invalid to the user (e.g. a validity flag / status enum on
-  /// the projected state) instead of silently emitting an empty Footprint.
-  void fillFootprint(BicycleProjectedState & state) const;
+  /// @brief Convert a pose at the reference axle to the rear axle, where motion is integrated.
+  Pose2D toRearAxle(const Pose2D & reference_pose) const;
+
+  /// @brief Convert a rear-axle pose back out to the reference axle.
+  Pose2D fromRearAxle(const Pose2D & rear_axle_pose) const;
 
   BicycleModel model_;
   double min_steering_angle_rad_;
   double max_steering_angle_rad_;
-  double front_overhang_m_;
-  double rear_overhang_m_;
-  double body_width_m_;
+  AxleReference axle_reference_;
+  Footprint footprint_;
 };
 
 }  // namespace polymath::kinematics

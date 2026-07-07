@@ -26,9 +26,9 @@ class Trajectory:
     """Base trajectory data with common fields.
 
     ``footprint_series``, when present, is the per-sample single-body footprint produced by the
-    C++ projector: an ``(N, 4, 2)`` array of world-frame polygon corners (N samples, 4 corners,
-    xy). It is ``None`` when the projector was given no footprint dimensions (single-body models
-    only; the articulated model uses the front/rear series on ``ArticulatedTrajectory``).
+    C++ projector: an ``(N, V, 2)`` array of world-frame polygon vertices (N samples, V vertices,
+    xy). It is ``None`` when no footprint was set on the projector (single-body models only; the
+    articulated model uses the front/rear series on ``ArticulatedTrajectory``).
     """
 
     time: np.ndarray
@@ -82,10 +82,13 @@ class ArticulatedTrajectory(Trajectory):
     articulation_angle: float = 0.0
     turning_radius: float = 0.0
     articulation_angle_series: Optional[np.ndarray] = None
-    # Per-sample front/rear body footprints from the C++ projector, each an (N, 4, 2) array of
-    # world-frame polygon corners. None when the projector was given no footprint dimensions.
+    # Per-sample front/rear body footprints from the C++ projector, each an (N, V, 2) array of
+    # world-frame polygon vertices. None when no footprint was set on the projector.
     front_footprint_series: Optional[np.ndarray] = None
     rear_footprint_series: Optional[np.ndarray] = None
+    # Per-sample articulation-joint pose as an (N, 3) array of [x, y, rear-body theta]. The joint
+    # cannot be recovered from an arbitrary polygon, so the projector reports it directly.
+    joint_pose_series: Optional[np.ndarray] = None
 
 
 # Type alias for any trajectory type

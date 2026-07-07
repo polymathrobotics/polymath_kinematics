@@ -70,8 +70,9 @@ cmake -S . -B build -DBUILD_TESTING=ON -DCMAKE_DISABLE_FIND_PACKAGE_ament_cmake=
 After `uv pip install -e ".[explorer]"`:
 
 ```bash
-# Console script (recommended)
+# Console script (recommended). Extra arguments are forwarded to streamlit.
 kinematic-explorer
+kinematic-explorer --server.port=8600
 
 # Or invoke streamlit directly
 uv run python -m streamlit run polymath_kinematics/kinematic_explorer_app.py
@@ -80,11 +81,18 @@ uv run python -m streamlit run polymath_kinematics/kinematic_explorer_app.py
 The app opens at `http://localhost:8501` and exposes:
 
 - Model selection (Differential Drive / Bicycle / Articulated)
-- Geometry sliders (wheelbase, track width, wheel radii, etc.)
+- Geometry sliders (wheelbase, track width, wheel radii, body overhangs) and a front/rear axle reference selector
 - Trajectory lattice visualisation across steering / articulation angles
 - Kinematic analysis plots (angle → angular velocity, turning radius vs angle)
-- Vehicle-footprint overlays along trajectories
-- CSV / JSON / PNG / SVG / PDF export
+- Vehicle-footprint overlays along trajectories, drawn from the projector-computed polygons
+- Single projected trajectory with initial → target ramp controls
+- CSV / JSON / PNG / SVG / PDF download
+
+Every trajectory the explorer draws comes from the C++ projectors, so it exercises the same
+forward-simulation code as production. Integration is Euler at the configured time step.
+
+The console script binds to `localhost` by default; pass `--server.address=0.0.0.0` to serve a
+demo over the network.
 
 ## Running tests
 
@@ -118,9 +126,13 @@ from polymath_kinematics import (
     DifferentialDriveModel,
     BicycleModel,
     ArticulatedModel,
+    DifferentialDriveProjector,
     BicycleProjector,
     ArticulatedProjector,
+    AxleReference,
     Pose2D,
+    Point2D,
+    rectangle_footprint,
 )
 ```
 
@@ -184,16 +196,55 @@ axles = model.articulation_to_axle_velocities(
 print(axles.front_axle_turning_velocity_rad_s, axles.rear_axle_turning_velocity_rad_s)
 ```
 
-### Projectors — forward simulation with steering-rate limits
+### Projectors — forward simulation with actuator limits
 
-`BicycleProjector` and `ArticulatedProjector` wrap their respective models and integrate pose forward in time under realistic actuator constraints: the steering / articulation angle ramps toward a target at a bounded rate, clamped to `[min, max]`.
+Each projector wraps its model and integrates pose forward in time under realistic actuator
+constraints. For `BicycleProjector` and `ArticulatedProjector` the steering / articulation angle
+ramps toward a target at a bounded rate, clamped to `[min, max]`. `DifferentialDriveProjector`
+has no steered joint, so it instead ramps the body command `(v, ω)` under separate linear and
+angular acceleration limits.
+
+Every projector optionally computes a per-sample vehicle footprint. Footprints are **arbitrary
+polygons** given in the body frame, and they live on the projector rather than the model — the
+kinematic models stay dimension-free. A polygon is counter-clockwise and not closed; an empty
+polygon (the default) means "unset", so the footprint comes back empty and projection proceeds
+normally. `rectangle_footprint(front_m, rear_m, width_m)` builds the boxy common case.
+
+For the bicycle and articulated models, poses and the body-frame footprint are both measured from
+an axle you choose with `AxleReference.FRONT` or `AxleReference.REAR`. A differential drive has one
+axle, so there is nothing to select.
+
+| Projector | Pose reference | Footprint |
+|---|---|---|
+| `DifferentialDriveProjector` | Body centre | One polygon in the body-centre frame |
+| `BicycleProjector` | Selected axle (`AxleReference`) | One polygon in the selected axle's frame |
+| `ArticulatedProjector` | Selected axle (`AxleReference`); θ is that axle's body heading | One polygon per body, **each in its own axle's frame** — the only anchoring that stays rigid as the joint articulates |
+
+`ArticulatedProjector` also reports `joint_pose` on every sample, so the articulation joint
+(`base_link` for a ROS articulated vehicle) is available regardless of which axle you reference.
+See the [derivations](#derivations) for the per-model geometry and integration details.
 
 ```python
 projector = BicycleProjector(
     model=BicycleModel(wheelbase_m=2.7, track_width_m=1.6, wheel_radius_m=0.35),
     min_steering_angle_rad=-0.6,
     max_steering_angle_rad=0.6,
+    axle_reference=AxleReference.REAR,
+    # Measured from the rear axle: front bumper 0.9 m past the 2.7 m front axle, 0.8 m of tail.
+    footprint=rectangle_footprint(2.7 + 0.9, 0.8, 1.8),
 )
+
+# Or describe the same body from the front axle — the polygon moves with the reference:
+front_referenced = BicycleProjector(
+    model=BicycleModel(wheelbase_m=2.7, track_width_m=1.6, wheel_radius_m=0.35),
+    min_steering_angle_rad=-0.6,
+    max_steering_angle_rad=0.6,
+    axle_reference=AxleReference.FRONT,
+    footprint=rectangle_footprint(0.9, 2.7 + 0.8, 1.8),
+)
+
+# Any polygon works, not just rectangles — a tapered nose, for instance:
+tapered = [Point2D(-0.8, -0.9), Point2D(3.2, -0.9), Point2D(3.6, 0.0), Point2D(3.2, 0.9), Point2D(-0.8, 0.9)]
 
 # One-step advance
 result = projector.step(
@@ -205,6 +256,7 @@ result = projector.step(
     linear_velocity_m_s=1.0,
 )
 print(result.pose.x, result.steering_angle_rad)
+print([(p.x, p.y) for p in result.footprint])  # world-frame body polygon
 
 # Full trajectory
 trajectory = projector.project(
@@ -226,6 +278,11 @@ projector = ArticulatedProjector(
     model=ArticulatedModel(1.66, 1.44, 2.0, 2.0, 0.723, 0.723),
     min_articulation_angle_rad=-0.785,
     max_articulation_angle_rad=0.785,
+    axle_reference=AxleReference.REAR,
+    # Front body about the FRONT axle: 1.0 m of bucket ahead, back to the joint 1.66 m behind.
+    front_footprint=rectangle_footprint(1.0, 1.66, 2.0),
+    # Rear body about the REAR axle: forward to the joint 1.44 m ahead, 0.8 m of counterweight.
+    rear_footprint=rectangle_footprint(1.44, 0.8, 2.0),
 )
 trajectory = projector.project(
     horizon_s=5.0, dt_s=0.05,
@@ -235,6 +292,29 @@ trajectory = projector.project(
     articulation_rate_rad_s=0.2,
     linear_velocity_m_s=1.0,
 )
+```
+
+`DifferentialDriveProjector` ramps the body command instead of an angle:
+
+```python
+projector = DifferentialDriveProjector(
+    model=DifferentialDriveModel(wheel_radius_m=0.15, track_width_m=0.5),
+    min_linear_velocity_m_s=-2.0,
+    max_linear_velocity_m_s=2.0,
+    min_angular_velocity_rad_s=-1.5,
+    max_angular_velocity_rad_s=1.5,
+)
+trajectory = projector.project(
+    horizon_s=5.0, dt_s=0.05,
+    initial_pose=Pose2D(),
+    initial_linear_velocity_m_s=0.0,
+    initial_angular_velocity_rad_s=0.0,
+    target_linear_velocity_m_s=1.0,
+    target_angular_velocity_rad_s=0.5,
+    linear_acceleration_m_s2=1.0,
+    angular_acceleration_rad_s2=1.0,
+)
+# Setting initial == target makes the ramp a no-op, giving a constant-command trajectory.
 ```
 
 ## C++ usage
@@ -250,6 +330,7 @@ target_link_libraries(my_target PRIVATE polymath_kinematics::polymath_kinematics
 #include <polymath_kinematics/differential_drive_model.hpp>
 #include <polymath_kinematics/bicycle_model.hpp>
 #include <polymath_kinematics/articulated_model.hpp>
+#include <polymath_kinematics/differential_drive_projector.hpp>
 #include <polymath_kinematics/bicycle_projector.hpp>
 #include <polymath_kinematics/articulated_projector.hpp>
 #include <polymath_kinematics/pose2d.hpp>
@@ -299,7 +380,9 @@ auto axles_with_rate = model.articulationToAxleVelocities(1.5, 0.3, 0.2);
 ```cpp
 polymath::kinematics::BicycleProjector projector(
     polymath::kinematics::BicycleModel(2.7, 1.6, 0.35),
-    -0.6, 0.6);  // min/max steering angle (rad)
+    -0.6, 0.6,                                            // min/max steering angle (rad)
+    polymath::kinematics::AxleReference::REAR,             // poses + footprint about the rear axle
+    polymath::kinematics::rectangleFootprint(3.6, 0.8, 1.8));  // front_m, rear_m, width_m
 
 polymath::kinematics::Pose2D pose{0.0, 0.0, 0.0};
 
@@ -319,7 +402,20 @@ auto trajectory = projector.project(
 // trajectory.front() is the initial state, trajectory.back() is the end of the horizon.
 ```
 
-`ArticulatedProjector` is shaped identically — the angle is the articulation angle (γ) and the rate is γ̇.
+`ArticulatedProjector` is shaped identically — the angle is the articulation angle (γ) and the rate is γ̇. `DifferentialDriveProjector` takes a body command and acceleration limits instead:
+
+```cpp
+polymath::kinematics::DifferentialDriveProjector diff_projector(
+    polymath::kinematics::DifferentialDriveModel(0.15, 0.5),
+    -2.0, 2.0,    // min/max linear velocity (m/s)
+    -1.5, 1.5);   // min/max angular velocity (rad/s)
+
+auto diff_trajectory = diff_projector.project(
+    /*horizon_s=*/5.0, /*dt_s=*/0.05, pose,
+    /*initial_v=*/0.0, /*initial_omega=*/0.0,
+    /*target_v=*/1.0, /*target_omega=*/0.5,
+    /*linear_accel=*/1.0, /*angular_accel=*/1.0);
+```
 
 ## Models reference
 
@@ -370,7 +466,10 @@ auto trajectory = projector.project(
 
 | Class | Constructor | Notable methods |
 |---|---|---|
-| `BicycleProjector` | `(BicycleModel, min_steering, max_steering)` | `step(dt, pose, current, target, rate, v)`, `project(horizon, dt, pose, initial, target, rate, v)` |
-| `ArticulatedProjector` | `(ArticulatedModel, min_articulation, max_articulation)` | `step(dt, pose, current, target, rate, v)`, `project(horizon, dt, pose, initial, target, rate, v)` |
+| `BicycleProjector` | `(BicycleModel, min_steering, max_steering, [axle_reference, footprint])` | `step(dt, pose, current, target, rate, v)`, `project(horizon, dt, pose, initial, target, rate, v)` |
+| `ArticulatedProjector` | `(ArticulatedModel, min_articulation, max_articulation, [axle_reference, front_footprint, rear_footprint])` | `step(dt, pose, current, target, rate, v)`, `project(horizon, dt, pose, initial, target, rate, v)` |
+| `DifferentialDriveProjector` | `(DifferentialDriveModel, min_v, max_v, min_omega, max_omega, [footprint])` | `step(dt, pose, current_v, current_omega, target_v, target_omega, accel, angular_accel)`, `project(horizon, dt, pose, initial_v, initial_omega, target_v, target_omega, accel, angular_accel)` |
 
-Both projectors clamp the target angle to `[min, max]` before ramping, then advance the current angle toward the clamped target at the given rate (never overshooting), and integrate pose with Euler.
+All three clamp the target to its `[min, max]` bounds before ramping, then advance toward the clamped target at the given rate or acceleration (never overshooting), and integrate pose with Euler using the heading at the start of each step. `project()` returns `ceil(horizon / dt) + 1` samples, with the initial state as element 0.
+
+`BicycleProjector` and `ArticulatedProjector` ramp an angle; `DifferentialDriveProjector` ramps the body command `(v, ω)` under separate linear and angular acceleration limits, since a differential drive has no steered joint.

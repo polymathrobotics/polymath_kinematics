@@ -21,6 +21,42 @@
 namespace polymath::kinematics
 {
 
+Pose2D ArticulatedProjector::jointFromRearAxle(const Pose2D & rear_axle_pose) const
+{
+  return offsetAlongHeading(rear_axle_pose, model_.get_articulation_to_rear_axle_m());
+}
+
+Pose2D ArticulatedProjector::frontAxleFromRearAxle(const Pose2D & rear_axle_pose, double articulation_angle_rad) const
+{
+  // Walk rear axle -> joint along the rear heading, then joint -> front axle along the front
+  // heading (theta_front = theta_rear + gamma).
+  const Pose2D joint = jointFromRearAxle(rear_axle_pose);
+  const Pose2D front_heading{joint.x, joint.y, normalizeAngle(joint.theta + articulation_angle_rad)};
+  return offsetAlongHeading(front_heading, model_.get_articulation_to_front_axle_m());
+}
+
+Pose2D ArticulatedProjector::toRearAxle(const Pose2D & reference_pose, double articulation_angle_rad) const
+{
+  if (axle_reference_ == AxleReference::REAR) {
+    return reference_pose;
+  }
+  // Invert frontAxleFromRearAxle: theta here is the front-body heading.
+  const Pose2D joint = offsetAlongHeading(reference_pose, -model_.get_articulation_to_front_axle_m());
+  const Pose2D rear_heading{joint.x, joint.y, normalizeAngle(joint.theta - articulation_angle_rad)};
+  return offsetAlongHeading(rear_heading, -model_.get_articulation_to_rear_axle_m());
+}
+
+void ArticulatedProjector::fillPosesAndFootprints(
+  ArticulatedProjectedState & state, const Pose2D & rear_axle_pose, double articulation_angle_rad) const
+{
+  const Pose2D front_axle_pose = frontAxleFromRearAxle(rear_axle_pose, articulation_angle_rad);
+  state.joint_pose = jointFromRearAxle(rear_axle_pose);
+  state.pose = axle_reference_ == AxleReference::REAR ? rear_axle_pose : front_axle_pose;
+  // Each body's polygon is anchored at its own axle, so it stays rigid as the joint articulates.
+  state.front_footprint = transformFootprint(front_footprint_, front_axle_pose);
+  state.rear_footprint = transformFootprint(rear_footprint_, rear_axle_pose);
+}
+
 ArticulatedProjectedState ArticulatedProjector::step(
   double dt_s,
   const Pose2D & current_pose,
@@ -52,53 +88,17 @@ ArticulatedProjectedState ArticulatedProjector::step(
   ArticulatedVehicleState inner =
     model_.bodyVelocityToVehicleState(linear_velocity_m_s, angular_velocity_rad_s, actual_articulation_rate_rad_s);
 
-  // Euler pose update (heading taken at start of step).
-  Pose2D new_pose{
-    current_pose.x + linear_velocity_m_s * std::cos(current_pose.theta) * dt_s,
-    current_pose.y + linear_velocity_m_s * std::sin(current_pose.theta) * dt_s,
-    normalizeAngle(current_pose.theta + angular_velocity_rad_s * dt_s)};
+  // Motion is integrated at the rear axle; convert in from the reference axle and back out again.
+  const Pose2D rear_pose = toRearAxle(current_pose, current_articulation_angle_rad);
+  const Pose2D new_rear_pose{
+    rear_pose.x + linear_velocity_m_s * std::cos(rear_pose.theta) * dt_s,
+    rear_pose.y + linear_velocity_m_s * std::sin(rear_pose.theta) * dt_s,
+    normalizeAngle(rear_pose.theta + angular_velocity_rad_s * dt_s)};
 
   ArticulatedProjectedState state{
-    dt_s, new_pose, new_articulation_angle_rad, linear_velocity_m_s, angular_velocity_rad_s, inner, {}, {}};
-  fillFootprints(state);
+    dt_s, {}, new_articulation_angle_rad, linear_velocity_m_s, angular_velocity_rad_s, inner, {}, {}, {}};
+  fillPosesAndFootprints(state, new_rear_pose, new_articulation_angle_rad);
   return state;
-}
-
-void ArticulatedProjector::fillFootprints(ArticulatedProjectedState & state) const
-{
-  // Pose is the REAR axle; pose.theta is the rear-body heading. The articulation joint sits
-  // `articulation_to_rear_axle` ahead of the rear axle along the rear-body heading, and the
-  // front body is rotated relative to the rear by the articulation angle (theta_front =
-  // theta_rear + gamma; see derivations/articulated_model.md).
-  const double rear_theta = state.pose.theta;
-  const double front_theta = rear_theta + state.articulation_angle_rad;
-  const double rear_axle_to_joint = model_.get_articulation_to_rear_axle_m();
-  const double joint_x = state.pose.x + rear_axle_to_joint * std::cos(rear_theta);
-  const double joint_y = state.pose.y + rear_axle_to_joint * std::sin(rear_theta);
-
-  // Rectangle corners (CCW, open) given body-frame x extent [x_lo, x_hi] and width, placed at the
-  // joint and rotated by `heading`. Returns empty when the width is unset/invalid (<= 0).
-  auto make_body = [joint_x, joint_y](double heading, double x_lo, double x_hi, double width) {
-    Footprint corners;
-    if (width <= 0.0) {
-      return corners;
-    }
-    const double half_w = width / 2.0;
-    const double cos_h = std::cos(heading);
-    const double sin_h = std::sin(heading);
-    const double local_x[4] = {x_lo, x_hi, x_hi, x_lo};
-    const double local_y[4] = {-half_w, -half_w, half_w, half_w};
-    corners.reserve(4);
-    for (int i = 0; i < 4; ++i) {
-      corners.push_back(Point2D{
-        joint_x + cos_h * local_x[i] - sin_h * local_y[i],
-        joint_y + sin_h * local_x[i] + cos_h * local_y[i]});
-    }
-    return corners;
-  };
-
-  state.front_footprint = make_body(front_theta, 0.0, front_joint_to_bumper_m_, front_body_width_m_);
-  state.rear_footprint = make_body(rear_theta, -rear_joint_to_bumper_m_, 0.0, rear_body_width_m_);
 }
 
 std::vector<ArticulatedProjectedState> ArticulatedProjector::project(
@@ -121,8 +121,9 @@ std::vector<ArticulatedProjectedState> ArticulatedProjector::project(
   double initial_omega = initial_axle.rear_axle_turning_velocity_rad_s;
   ArticulatedVehicleState initial_inner = model_.bodyVelocityToVehicleState(linear_velocity_m_s, initial_omega);
   ArticulatedProjectedState initial_state{
-    0.0, initial_pose, initial_articulation_angle_rad, linear_velocity_m_s, initial_omega, initial_inner, {}, {}};
-  fillFootprints(initial_state);
+    0.0, {}, initial_articulation_angle_rad, linear_velocity_m_s, initial_omega, initial_inner, {}, {}, {}};
+  fillPosesAndFootprints(
+    initial_state, toRearAxle(initial_pose, initial_articulation_angle_rad), initial_articulation_angle_rad);
   trajectory.push_back(initial_state);
 
   std::size_t n_steps = static_cast<std::size_t>(std::ceil(horizon_s / dt_s));

@@ -154,10 +154,28 @@ PYBIND11_MODULE(polymath_kinematics_cpp, m)
   // Python list of Point2D via pybind11/stl.h.
   py::class_<Point2D>(m, "Point2D")
     .def(py::init<>())
-    .def(
-      py::init([](double x, double y) { return Point2D{x, y}; }), py::arg("x") = 0.0, py::arg("y") = 0.0)
+    .def(py::init([](double x, double y) { return Point2D{x, y}; }), py::arg("x") = 0.0, py::arg("y") = 0.0)
     .def_readwrite("x", &Point2D::x)
     .def_readwrite("y", &Point2D::y);
+
+  py::enum_<AxleReference>(m, "AxleReference", "Which axle a projector's poses and footprint are measured from.")
+    .value("FRONT", AxleReference::FRONT)
+    .value("REAR", AxleReference::REAR);
+
+  m.def(
+    "rectangle_footprint",
+    &rectangleFootprint,
+    py::arg("front_m"),
+    py::arg("rear_m"),
+    py::arg("width_m"),
+    "Build a rectangular body-frame footprint (CCW, open): rear-right, front-right, front-left, rear-left.");
+
+  m.def(
+    "transform_footprint",
+    &transformFootprint,
+    py::arg("body_frame"),
+    py::arg("pose"),
+    "Transform a body-frame footprint into the world frame by `pose`.");
 
   // Bicycle projector bindings
   py::class_<BicycleProjectedState>(m, "BicycleProjectedState")
@@ -172,13 +190,12 @@ PYBIND11_MODULE(polymath_kinematics_cpp, m)
 
   py::class_<BicycleProjector>(m, "BicycleProjector")
     .def(
-      py::init<BicycleModel, double, double, double, double, double>(),
+      py::init<BicycleModel, double, double, AxleReference, Footprint>(),
       py::arg("model"),
       py::arg("min_steering_angle_rad"),
       py::arg("max_steering_angle_rad"),
-      py::arg("front_overhang_m") = 0.0,
-      py::arg("rear_overhang_m") = 0.0,
-      py::arg("body_width_m") = 0.0)
+      py::arg("axle_reference") = AxleReference::REAR,
+      py::arg("footprint") = Footprint{})
     .def(
       "step",
       &BicycleProjector::step,
@@ -201,9 +218,8 @@ PYBIND11_MODULE(polymath_kinematics_cpp, m)
     .def_property_readonly("model", &BicycleProjector::get_model, py::return_value_policy::reference_internal)
     .def_property_readonly("min_steering_angle_rad", &BicycleProjector::get_min_steering_angle_rad)
     .def_property_readonly("max_steering_angle_rad", &BicycleProjector::get_max_steering_angle_rad)
-    .def_property_readonly("front_overhang_m", &BicycleProjector::get_front_overhang_m)
-    .def_property_readonly("rear_overhang_m", &BicycleProjector::get_rear_overhang_m)
-    .def_property_readonly("body_width_m", &BicycleProjector::get_body_width_m);
+    .def_property_readonly("axle_reference", &BicycleProjector::get_axle_reference)
+    .def_property_readonly("footprint", &BicycleProjector::get_footprint);
 
   // Articulated projector bindings
   py::class_<ArticulatedProjectedState>(m, "ArticulatedProjectedState")
@@ -214,19 +230,19 @@ PYBIND11_MODULE(polymath_kinematics_cpp, m)
     .def_readwrite("linear_velocity_m_s", &ArticulatedProjectedState::linear_velocity_m_s)
     .def_readwrite("angular_velocity_rad_s", &ArticulatedProjectedState::angular_velocity_rad_s)
     .def_readwrite("vehicle_state", &ArticulatedProjectedState::vehicle_state)
+    .def_readwrite("joint_pose", &ArticulatedProjectedState::joint_pose)
     .def_readwrite("front_footprint", &ArticulatedProjectedState::front_footprint)
     .def_readwrite("rear_footprint", &ArticulatedProjectedState::rear_footprint);
 
   py::class_<ArticulatedProjector>(m, "ArticulatedProjector")
     .def(
-      py::init<ArticulatedModel, double, double, double, double, double, double>(),
+      py::init<ArticulatedModel, double, double, AxleReference, Footprint, Footprint>(),
       py::arg("model"),
       py::arg("min_articulation_angle_rad"),
       py::arg("max_articulation_angle_rad"),
-      py::arg("front_joint_to_bumper_m") = 0.0,
-      py::arg("front_body_width_m") = 0.0,
-      py::arg("rear_joint_to_bumper_m") = 0.0,
-      py::arg("rear_body_width_m") = 0.0)
+      py::arg("axle_reference") = AxleReference::REAR,
+      py::arg("front_footprint") = Footprint{},
+      py::arg("rear_footprint") = Footprint{})
     .def(
       "step",
       &ArticulatedProjector::step,
@@ -249,10 +265,9 @@ PYBIND11_MODULE(polymath_kinematics_cpp, m)
     .def_property_readonly("model", &ArticulatedProjector::get_model, py::return_value_policy::reference_internal)
     .def_property_readonly("min_articulation_angle_rad", &ArticulatedProjector::get_min_articulation_angle_rad)
     .def_property_readonly("max_articulation_angle_rad", &ArticulatedProjector::get_max_articulation_angle_rad)
-    .def_property_readonly("front_joint_to_bumper_m", &ArticulatedProjector::get_front_joint_to_bumper_m)
-    .def_property_readonly("front_body_width_m", &ArticulatedProjector::get_front_body_width_m)
-    .def_property_readonly("rear_joint_to_bumper_m", &ArticulatedProjector::get_rear_joint_to_bumper_m)
-    .def_property_readonly("rear_body_width_m", &ArticulatedProjector::get_rear_body_width_m);
+    .def_property_readonly("axle_reference", &ArticulatedProjector::get_axle_reference)
+    .def_property_readonly("front_footprint", &ArticulatedProjector::get_front_footprint)
+    .def_property_readonly("rear_footprint", &ArticulatedProjector::get_rear_footprint);
 
   // Differential drive projector bindings
   py::class_<DifferentialDriveProjectedState>(m, "DifferentialDriveProjectedState")
@@ -266,15 +281,13 @@ PYBIND11_MODULE(polymath_kinematics_cpp, m)
 
   py::class_<DifferentialDriveProjector>(m, "DifferentialDriveProjector")
     .def(
-      py::init<DifferentialDriveModel, double, double, double, double, double, double, double>(),
+      py::init<DifferentialDriveModel, double, double, double, double, Footprint>(),
       py::arg("model"),
       py::arg("min_linear_velocity_m_s"),
       py::arg("max_linear_velocity_m_s"),
       py::arg("min_angular_velocity_rad_s"),
       py::arg("max_angular_velocity_rad_s"),
-      py::arg("front_overhang_m") = 0.0,
-      py::arg("rear_overhang_m") = 0.0,
-      py::arg("body_width_m") = 0.0)
+      py::arg("footprint") = Footprint{})
     .def(
       "step",
       &DifferentialDriveProjector::step,
@@ -303,9 +316,7 @@ PYBIND11_MODULE(polymath_kinematics_cpp, m)
     .def_property_readonly("max_linear_velocity_m_s", &DifferentialDriveProjector::get_max_linear_velocity_m_s)
     .def_property_readonly("min_angular_velocity_rad_s", &DifferentialDriveProjector::get_min_angular_velocity_rad_s)
     .def_property_readonly("max_angular_velocity_rad_s", &DifferentialDriveProjector::get_max_angular_velocity_rad_s)
-    .def_property_readonly("front_overhang_m", &DifferentialDriveProjector::get_front_overhang_m)
-    .def_property_readonly("rear_overhang_m", &DifferentialDriveProjector::get_rear_overhang_m)
-    .def_property_readonly("body_width_m", &DifferentialDriveProjector::get_body_width_m);
+    .def_property_readonly("footprint", &DifferentialDriveProjector::get_footprint);
 }
 
 }  // namespace polymath::kinematics

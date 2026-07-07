@@ -12,14 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import math
-
 from polymath_kinematics_cpp import (
     ArticulatedAxleVelocities,
     ArticulatedModel,
     ArticulatedProjectedState,
     ArticulatedProjector,
     ArticulatedVehicleState,
+    AxleReference,
     BicycleBodyVelocity,
     BicycleModel,
     BicycleProjectedState,
@@ -32,7 +31,13 @@ from polymath_kinematics_cpp import (
     DifferentialDriveWheelVelocities,
     Point2D,
     Pose2D,
+    rectangle_footprint,
+    transform_footprint,
 )
+
+# The C++ Footprint is std::vector<Point2D>, which pybind11 exposes as a plain list of Point2D.
+# Alias it so annotations can name the concept.
+Footprint = list[Point2D]
 
 __all__ = [
     'ArticulatedAxleVelocities',
@@ -40,6 +45,7 @@ __all__ = [
     'ArticulatedProjectedState',
     'ArticulatedProjector',
     'ArticulatedVehicleState',
+    'AxleReference',
     'BicycleBodyVelocity',
     'BicycleModel',
     'BicycleProjectedState',
@@ -50,34 +56,9 @@ __all__ = [
     'DifferentialDriveProjectedState',
     'DifferentialDriveProjector',
     'DifferentialDriveWheelVelocities',
+    'Footprint',
     'Point2D',
     'Pose2D',
-    'Twist2D',
-    'normalize_angle',
-    'transform_pose',
+    'rectangle_footprint',
+    'transform_footprint',
 ]
-
-
-class Twist2D:
-    def __init__(self, linear_x=0.0, linear_y=0.0, angular_z=0.0):
-        self.linear_x = linear_x
-        self.linear_y = linear_y
-        self.angular_z = angular_z
-
-
-def normalize_angle(angle):
-    """Normalize angle to [-pi, pi]"""
-    while angle > math.pi:
-        angle -= 2.0 * math.pi
-    while angle < -math.pi:
-        angle += 2.0 * math.pi
-    return angle
-
-
-def transform_pose(pose, transform):
-    """Transform a pose by a relative transform"""
-    result = Pose2D()
-    result.x = pose.x + transform.x * math.cos(pose.theta) - transform.y * math.sin(pose.theta)
-    result.y = pose.y + transform.x * math.sin(pose.theta) + transform.y * math.cos(pose.theta)
-    result.theta = normalize_angle(pose.theta + transform.theta)
-    return result

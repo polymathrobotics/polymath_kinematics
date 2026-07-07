@@ -21,6 +21,22 @@
 namespace polymath::kinematics
 {
 
+Pose2D BicycleProjector::toRearAxle(const Pose2D & reference_pose) const
+{
+  if (axle_reference_ == AxleReference::REAR) {
+    return reference_pose;
+  }
+  return offsetAlongHeading(reference_pose, -model_.get_wheelbase_m());
+}
+
+Pose2D BicycleProjector::fromRearAxle(const Pose2D & rear_axle_pose) const
+{
+  if (axle_reference_ == AxleReference::REAR) {
+    return rear_axle_pose;
+  }
+  return offsetAlongHeading(rear_axle_pose, model_.get_wheelbase_m());
+}
+
 BicycleProjectedState BicycleProjector::step(
   double dt_s,
   const Pose2D & current_pose,
@@ -47,37 +63,23 @@ BicycleProjectedState BicycleProjector::step(
   // Inverse kinematics populates wheel speeds + turning radius for the snapshot.
   BicycleSteeringState inner = model_.bodyVelocityToSteering(linear_velocity_m_s, body_vel.angular_velocity_rad_s);
 
-  // Euler pose update (heading taken at start of step, matching the plan's integration choice).
-  Pose2D new_pose{
-    current_pose.x + linear_velocity_m_s * std::cos(current_pose.theta) * dt_s,
-    current_pose.y + linear_velocity_m_s * std::sin(current_pose.theta) * dt_s,
-    normalizeAngle(current_pose.theta + body_vel.angular_velocity_rad_s * dt_s)};
+  // Euler pose update at the rear axle (heading taken at start of step), then back out to the
+  // reference axle.
+  const Pose2D rear_pose = toRearAxle(current_pose);
+  Pose2D new_rear_pose{
+    rear_pose.x + linear_velocity_m_s * std::cos(rear_pose.theta) * dt_s,
+    rear_pose.y + linear_velocity_m_s * std::sin(rear_pose.theta) * dt_s,
+    normalizeAngle(rear_pose.theta + body_vel.angular_velocity_rad_s * dt_s)};
+  const Pose2D new_pose = fromRearAxle(new_rear_pose);
 
-  BicycleProjectedState state{
-    dt_s, new_pose, new_steering_angle_rad, linear_velocity_m_s, body_vel.angular_velocity_rad_s, inner, {}};
-  fillFootprint(state);
-  return state;
-}
-
-void BicycleProjector::fillFootprint(BicycleProjectedState & state) const
-{
-  Footprint & corners = state.footprint;
-  corners.clear();
-  if (body_width_m_ <= 0.0) {
-    return;
-  }
-  const double half_w = body_width_m_ / 2.0;
-  const double cos_t = std::cos(state.pose.theta);
-  const double sin_t = std::sin(state.pose.theta);
-  // CCW, open: rear-right, front-right, front-left, rear-left (body frame), then to world.
-  const double local_x[4] = {-rear_overhang_m_, front_overhang_m_, front_overhang_m_, -rear_overhang_m_};
-  const double local_y[4] = {-half_w, -half_w, half_w, half_w};
-  corners.reserve(4);
-  for (int i = 0; i < 4; ++i) {
-    corners.push_back(Point2D{
-      state.pose.x + cos_t * local_x[i] - sin_t * local_y[i],
-      state.pose.y + sin_t * local_x[i] + cos_t * local_y[i]});
-  }
+  return BicycleProjectedState{
+    dt_s,
+    new_pose,
+    new_steering_angle_rad,
+    linear_velocity_m_s,
+    body_vel.angular_velocity_rad_s,
+    inner,
+    transformFootprint(footprint_, new_pose)};
 }
 
 std::vector<BicycleProjectedState> BicycleProjector::project(
@@ -99,16 +101,14 @@ std::vector<BicycleProjectedState> BicycleProjector::project(
   BicycleBodyVelocity initial_body = model_.steeringToBodyVelocity(linear_velocity_m_s, initial_steering_angle_rad);
   BicycleSteeringState initial_inner =
     model_.bodyVelocityToSteering(linear_velocity_m_s, initial_body.angular_velocity_rad_s);
-  BicycleProjectedState initial_state{
+  trajectory.push_back(BicycleProjectedState{
     0.0,
     initial_pose,
     initial_steering_angle_rad,
     linear_velocity_m_s,
     initial_body.angular_velocity_rad_s,
     initial_inner,
-    {}};
-  fillFootprint(initial_state);
-  trajectory.push_back(initial_state);
+    transformFootprint(footprint_, initial_pose)});
 
   std::size_t n_steps = static_cast<std::size_t>(std::ceil(horizon_s / dt_s));
   trajectory.reserve(n_steps + 1);

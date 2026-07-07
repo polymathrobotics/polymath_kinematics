@@ -130,7 +130,7 @@ TEST_CASE("DifferentialDriveProjector step - wheel speeds derive from body comma
   CHECK(result.wheel_velocities.right_wheel_velocity_rad_s == Approx(10.0));
 }
 
-TEST_CASE("DifferentialDriveProjector - no footprint dims yields an empty footprint (never throws)")
+TEST_CASE("DifferentialDriveProjector - no footprint set yields an empty footprint (never throws)")
 {
   auto projector = makeProjector();
   Pose2D pose{0.0, 0.0, 0.0};
@@ -140,32 +140,46 @@ TEST_CASE("DifferentialDriveProjector - no footprint dims yields an empty footpr
 
 TEST_CASE("DifferentialDriveProjector footprint - rectangle corners rotated by heading")
 {
-  constexpr double FRONT_OVERHANG = 1.5;
-  constexpr double REAR_OVERHANG = 0.5;
-  constexpr double BODY_WIDTH = 1.0;
+  constexpr double FRONT = 1.5;
+  constexpr double REAR = 0.5;
+  constexpr double WIDTH = 1.0;
   DifferentialDriveProjector projector(
     DifferentialDriveModel(WHEEL_RADIUS, TRACK_WIDTH),
     V_MIN,
     V_MAX,
     OMEGA_MIN,
     OMEGA_MAX,
-    FRONT_OVERHANG,
-    REAR_OVERHANG,
-    BODY_WIDTH);
+    rectangleFootprint(FRONT, REAR, WIDTH));
 
   // Heading = +90 deg (theta = pi/2), v=0 so pose stays at the origin.
   const double theta = M_PI / 2.0;
   Pose2D pose{0.0, 0.0, theta};
   auto result = projector.step(0.1, pose, 0.0, 0.0, 0.0, 0.0, 100.0, 100.0);
   REQUIRE(result.footprint.size() == 4);
-  // Body-frame front-right corner (FRONT_OVERHANG, -BODY_WIDTH/2) rotated by +90deg:
-  // world = (+BODY_WIDTH/2, FRONT_OVERHANG).
-  CHECK(result.footprint[1].x == Approx(BODY_WIDTH / 2.0));
-  CHECK(result.footprint[1].y == Approx(FRONT_OVERHANG));
-  // Body-frame rear-right corner (-REAR_OVERHANG, -BODY_WIDTH/2) rotated by +90deg:
-  // world = (+BODY_WIDTH/2, -REAR_OVERHANG).
-  CHECK(result.footprint[0].x == Approx(BODY_WIDTH / 2.0));
-  CHECK(result.footprint[0].y == Approx(-REAR_OVERHANG));
+  // Body-frame front-right corner (FRONT, -WIDTH/2) rotated by +90deg: world = (+WIDTH/2, FRONT).
+  CHECK(result.footprint[1].x == Approx(WIDTH / 2.0));
+  CHECK(result.footprint[1].y == Approx(FRONT));
+  // Body-frame rear-right corner (-REAR, -WIDTH/2) rotated by +90deg: world = (+WIDTH/2, -REAR).
+  CHECK(result.footprint[0].x == Approx(WIDTH / 2.0));
+  CHECK(result.footprint[0].y == Approx(-REAR));
+}
+
+TEST_CASE("DifferentialDriveProjector footprint - arbitrary polygon is rotated vertex for vertex")
+{
+  // A 3-vertex body, to prove nothing assumes 4 corners. No vertex sits on an axis, so the
+  // expected values stay clear of zero where Approx has no relative epsilon to work with.
+  const Footprint body{Point2D{1.0, 0.2}, Point2D{-0.5, 0.6}, Point2D{-0.5, -0.6}};
+  DifferentialDriveProjector projector(
+    DifferentialDriveModel(WHEEL_RADIUS, TRACK_WIDTH), V_MIN, V_MAX, OMEGA_MIN, OMEGA_MAX, body);
+
+  const double theta = M_PI / 2.0;
+  auto result = projector.step(0.1, Pose2D{0.0, 0.0, theta}, 0.0, 0.0, 0.0, 0.0, 100.0, 100.0);
+  REQUIRE(result.footprint.size() == body.size());
+  for (std::size_t i = 0; i < body.size(); ++i) {
+    // +90 deg rotation maps (x, y) -> (-y, x).
+    CHECK(result.footprint[i].x == Approx(-body[i].y));
+    CHECK(result.footprint[i].y == Approx(body[i].x));
+  }
 }
 
 }  // namespace polymath::kinematics
