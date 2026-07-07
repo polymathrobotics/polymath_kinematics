@@ -29,11 +29,12 @@
 namespace polymath::kinematics
 {
 
-/// @brief One sample of an articulated-model projection. Pose is tracked at the rear segment.
+/// @brief One sample of an articulated-model projection. Pose (base_link) is the articulation
+/// joint; pose.theta is the rear-body heading. Motion is integrated from the rear axle internally.
 struct ArticulatedProjectedState
 {
   double time_s;  ///< Elapsed time from the start of the projection
-  Pose2D pose;  ///< Rear-segment pose at this sample
+  Pose2D pose;  ///< Articulation-joint (base_link) pose at this sample; theta = rear-body heading
   double articulation_angle_rad;  ///< Post-ramp articulation angle (gamma) in radians
   double linear_velocity_m_s;  ///< Commanded linear velocity in m/s
   double angular_velocity_rad_s;  ///< Rear-axle turning rate used for theta integration
@@ -44,7 +45,8 @@ struct ArticulatedProjectedState
 
 /// @brief Forward-projection wrapper around ArticulatedModel. Ramps articulation angle (gamma)
 /// toward a target at a bounded rate (gamma-dot), clamping the target to [min, max] first.
-/// Pose is integrated with Euler at the rear axle.
+/// Motion is integrated with Euler at the rear axle, but the reported pose (base_link) is the
+/// articulation joint (rear axle + articulation_to_rear_axle along the rear-body heading).
 class ArticulatedProjector
 {
 public:
@@ -87,7 +89,7 @@ public:
   /// |articulation_rate_rad_s| per second, never overshooting. Pose is integrated with Euler
   /// using the post-ramp angle.
   /// @param dt_s Step duration in seconds (must be > 0)
-  /// @param current_pose Rear-segment pose at the start of the step
+  /// @param current_pose Articulation-joint (base_link) pose at the start of the step
   /// @param current_articulation_angle_rad Articulation angle at the start of the step
   /// @param target_articulation_angle_rad Desired articulation angle (clamped to [min, max] internally)
   /// @param articulation_rate_rad_s Magnitude of the ramp rate in rad/s (sign is ignored)

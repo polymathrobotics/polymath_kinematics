@@ -52,11 +52,20 @@ ArticulatedProjectedState ArticulatedProjector::step(
   ArticulatedVehicleState inner =
     model_.bodyVelocityToVehicleState(linear_velocity_m_s, angular_velocity_rad_s, actual_articulation_rate_rad_s);
 
-  // Euler pose update (heading taken at start of step).
+  // The public pose (base_link) is the articulation joint, but motion is integrated at the rear
+  // axle. Convert joint -> rear axle, Euler-step the rear axle, then convert back to the joint.
+  const double rear_axle_to_joint = model_.get_articulation_to_rear_axle_m();
+  const double rear_x = current_pose.x - rear_axle_to_joint * std::cos(current_pose.theta);
+  const double rear_y = current_pose.y - rear_axle_to_joint * std::sin(current_pose.theta);
+
+  const double new_rear_x = rear_x + linear_velocity_m_s * std::cos(current_pose.theta) * dt_s;
+  const double new_rear_y = rear_y + linear_velocity_m_s * std::sin(current_pose.theta) * dt_s;
+  const double new_theta = normalizeAngle(current_pose.theta + angular_velocity_rad_s * dt_s);
+
   Pose2D new_pose{
-    current_pose.x + linear_velocity_m_s * std::cos(current_pose.theta) * dt_s,
-    current_pose.y + linear_velocity_m_s * std::sin(current_pose.theta) * dt_s,
-    normalizeAngle(current_pose.theta + angular_velocity_rad_s * dt_s)};
+    new_rear_x + rear_axle_to_joint * std::cos(new_theta),
+    new_rear_y + rear_axle_to_joint * std::sin(new_theta),
+    new_theta};
 
   ArticulatedProjectedState state{
     dt_s, new_pose, new_articulation_angle_rad, linear_velocity_m_s, angular_velocity_rad_s, inner, {}, {}};
@@ -66,15 +75,13 @@ ArticulatedProjectedState ArticulatedProjector::step(
 
 void ArticulatedProjector::fillFootprints(ArticulatedProjectedState & state) const
 {
-  // Pose is the REAR axle; pose.theta is the rear-body heading. The articulation joint sits
-  // `articulation_to_rear_axle` ahead of the rear axle along the rear-body heading, and the
-  // front body is rotated relative to the rear by the articulation angle (theta_front =
-  // theta_rear + gamma; see derivations/articulated_model.md).
+  // Pose (base_link) is the articulation joint; pose.theta is the rear-body heading. The front
+  // body is rotated relative to the rear by the articulation angle (theta_front = theta_rear +
+  // gamma; see derivations/articulated_model.md).
   const double rear_theta = state.pose.theta;
   const double front_theta = rear_theta + state.articulation_angle_rad;
-  const double rear_axle_to_joint = model_.get_articulation_to_rear_axle_m();
-  const double joint_x = state.pose.x + rear_axle_to_joint * std::cos(rear_theta);
-  const double joint_y = state.pose.y + rear_axle_to_joint * std::sin(rear_theta);
+  const double joint_x = state.pose.x;
+  const double joint_y = state.pose.y;
 
   // Rectangle corners (CCW, open) given body-frame x extent [x_lo, x_hi] and width, placed at the
   // joint and rotated by `heading`. Returns empty when the width is unset/invalid (<= 0).

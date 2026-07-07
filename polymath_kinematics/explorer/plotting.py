@@ -335,7 +335,7 @@ def plot_trajectory_with_footprints(
     Returns:
         matplotlib Figure
     """
-    fig, ax = plt.subplots(figsize=(10, 8), layout='constrained')
+    fig, ax = plt.subplots(figsize=(16, 9), layout='constrained')
 
     colormap = plt.cm.tab10
     legend_handles = []
@@ -429,7 +429,10 @@ def plot_trajectory_with_footprints(
     ax.set_xlabel('X (m)')
     ax.set_ylabel('Y (m)')
     ax.set_title(f'Trajectory with Vehicle Footprints ({model_type})')
+    # Equal data scaling (circles stay circular) but force a 16:9 landscape box; the view
+    # limits expand to fill the box rather than distorting the geometry.
     ax.set_aspect('equal')
+    ax.set_box_aspect(9 / 16)
     ax.grid(True, alpha=0.3)
     ax.axhline(y=0, color='k', linewidth=0.5)
     ax.axvline(x=0, color='k', linewidth=0.5)
@@ -463,7 +466,9 @@ def plot_lattice(
     config = LATTICE_CONFIG[model_type]
 
     num_columns = len(group_values)
-    fig, axes = plt.subplots(1, num_columns, figsize=(5 * num_columns, 5), layout='constrained')
+    # 16:9 landscape; grow width for the (rare) multi-column case.
+    fig_width = max(16, 8 * num_columns)
+    fig, axes = plt.subplots(1, num_columns, figsize=(fig_width, 9), layout='constrained')
 
     if num_columns == 1:
         axes = [axes]
@@ -481,7 +486,9 @@ def plot_lattice(
         ax.set_title(f'{config.group_label} = {group_value:.1f} {config.group_unit}')
         ax.set_xlabel('X (m)')
         ax.set_ylabel('Y (m)')
+        # Equal data scaling (circles stay circular) with a 16:9 landscape box.
         ax.set_aspect('equal')
+        ax.set_box_aspect(9 / 16)
         ax.grid(True, alpha=0.3)
         ax.axhline(y=0, color='k', linewidth=0.5)
         ax.axvline(x=0, color='k', linewidth=0.5)

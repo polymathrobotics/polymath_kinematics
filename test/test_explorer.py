@@ -483,3 +483,34 @@ class TestSingleTrajectory:
         assert traj.rear_footprint_series is not None
         assert traj.front_footprint_series.shape == (len(traj.time), 4, 2)
         assert traj.rear_footprint_series.shape == (len(traj.time), 4, 2)
+
+    def test_single_articulated_footprint_extends_behind_rear_axle(self):
+        # base_link is the articulation joint. Straight ahead (gamma=0) from the origin along +x,
+        # with rear_joint_to_bumper = articulation_to_rear + rear_overhang, the rear body's
+        # rearmost point is at -(articulation_to_rear + rear_overhang) — i.e. behind the rear
+        # axle (which sits at -articulation_to_rear).
+        articulation_to_rear = 1.44
+        rear_overhang = 0.8
+        traj = single_articulated_trajectory(
+            articulation_to_front=1.66,
+            articulation_to_rear=articulation_to_rear,
+            front_track=2.0,
+            rear_track=2.0,
+            front_wheel_radius=0.723,
+            rear_wheel_radius=0.723,
+            initial_articulation_angle_rad=0.0,
+            target_articulation_angle_rad=0.0,
+            articulation_rate_rad_s=0.0,
+            drive_velocity=0.0,  # stay at the origin so the geometry is exact
+            duration=0.2,
+            time_step=0.1,
+            front_joint_to_bumper_m=1.66 + 1.0,
+            front_body_width_m=2.0,
+            rear_joint_to_bumper_m=articulation_to_rear + rear_overhang,
+            rear_body_width_m=2.0,
+        )
+        assert traj.rear_footprint_series is not None
+        rear0 = traj.rear_footprint_series[0]  # (4, 2) corners of the first sample
+        min_x = rear0[:, 0].min()
+        assert min_x == pytest.approx(-(articulation_to_rear + rear_overhang))
+        assert min_x < -articulation_to_rear  # extends behind the rear axle

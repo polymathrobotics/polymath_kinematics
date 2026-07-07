@@ -197,14 +197,15 @@ TEST_CASE("ArticulatedProjector - no footprint dims yields empty footprints (nev
 TEST_CASE("ArticulatedProjector footprint - zero articulation, both bodies aligned along +x")
 {
   auto projector = make_footprint_projector();
-  Pose2D pose{0.0, 0.0, 0.0};  // rear axle at origin, rear-body heading +x
+  // Pose (base_link) is the articulation joint; place it at the origin, rear-body heading +x.
+  Pose2D pose{0.0, 0.0, 0.0};
   auto result = projector.step(0.1, pose, 0.0, 0.0, 0.0, 0.0);  // v=0 so pose stays; gamma=0
 
   REQUIRE(result.front_footprint.size() == 4);
   REQUIRE(result.rear_footprint.size() == 4);
 
-  // Joint sits REAR_ARM ahead of the rear axle along +x.
-  const double joint_x = REAR_ARM;
+  // Joint is the pose (origin).
+  const double joint_x = 0.0;
   // Front body spans [joint, joint + FRONT_JOINT_TO_BUMPER]; corners 0 and 3 are at the joint.
   CHECK(result.front_footprint[0].x == Approx(joint_x));
   CHECK(result.front_footprint[0].y == Approx(-FRONT_BODY_WIDTH / 2.0));
@@ -224,7 +225,8 @@ TEST_CASE("ArticulatedProjector footprint - nonzero articulation folds the front
   auto result = projector.step(0.1, pose, gamma, gamma, 0.0, 0.0);  // hold gamma, v=0
 
   REQUIRE(result.front_footprint.size() == 4);
-  const double joint_x = REAR_ARM;
+  // Joint is the pose (origin).
+  const double joint_x = 0.0;
   const double joint_y = 0.0;
   // The front-bumper midpoint (between corners 1 and 2) lies on the front-body axis at distance
   // FRONT_JOINT_TO_BUMPER from the joint, along the front heading (rear theta + gamma). Using the

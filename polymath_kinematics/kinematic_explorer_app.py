@@ -46,7 +46,12 @@ from polymath_kinematics.explorer import (
     single_differential_trajectory,
     trajectories_to_dataframe,
 )
-from polymath_kinematics.explorer.config import FRONT_OVERHANG, REAR_AXLE_POSITION
+from polymath_kinematics.explorer.config import (
+    DEFAULT_ARTICULATED_FRONT_OVERHANG_M,
+    DEFAULT_ARTICULATED_REAR_OVERHANG_M,
+    FRONT_OVERHANG,
+    REAR_AXLE_POSITION,
+)
 from polymath_kinematics.explorer.plotting import _get_traj_attr
 
 
@@ -104,6 +109,8 @@ def _cached_lattice_articulated(
     duration: float,
     time_step: float,
     method: str,
+    front_overhang: float,
+    rear_overhang: float,
 ) -> list[ArticulatedTrajectory]:
     return generate_lattice_articulated(
         articulation_to_front,
@@ -117,9 +124,10 @@ def _cached_lattice_articulated(
         duration,
         time_step,
         method,
-        front_joint_to_bumper_m=articulation_to_front,
+        # base_link is the articulation joint; joint-to-bumper = joint-to-axle + overhang.
+        front_joint_to_bumper_m=articulation_to_front + front_overhang,
         front_body_width_m=front_track,
-        rear_joint_to_bumper_m=articulation_to_rear,
+        rear_joint_to_bumper_m=articulation_to_rear + rear_overhang,
         rear_body_width_m=rear_track,
     )
 
@@ -166,6 +174,8 @@ def _cached_single_articulated(
     drive_velocity: float,
     duration: float,
     time_step: float,
+    front_overhang: float,
+    rear_overhang: float,
 ) -> ArticulatedTrajectory:
     return single_articulated_trajectory(
         articulation_to_front,
@@ -180,9 +190,10 @@ def _cached_single_articulated(
         drive_velocity=drive_velocity,
         duration=duration,
         time_step=time_step,
-        front_joint_to_bumper_m=articulation_to_front,
+        # base_link is the articulation joint; joint-to-bumper = joint-to-axle + overhang.
+        front_joint_to_bumper_m=articulation_to_front + front_overhang,
         front_body_width_m=front_track,
-        rear_joint_to_bumper_m=articulation_to_rear,
+        rear_joint_to_bumper_m=articulation_to_rear + rear_overhang,
         rear_body_width_m=rear_track,
     )
 
@@ -301,6 +312,8 @@ def init_session_state():
         'art_to_rear': 1.2,
         'art_front_track': 1.8,
         'art_rear_track': 1.6,
+        'art_front_overhang': DEFAULT_ARTICULATED_FRONT_OVERHANG_M,
+        'art_rear_overhang': DEFAULT_ARTICULATED_REAR_OVERHANG_M,
         'art_front_wheel_r': 0.4,
         'art_rear_wheel_r': 0.5,
         'art_v_min': 1.0,
@@ -367,6 +380,14 @@ elif model_type == 'Articulated':
     )
     st.session_state.art_rear_track = st.sidebar.slider(
         'Rear Track Width (m)', 1.0, 3.0, st.session_state.art_rear_track, 0.1
+    )
+    st.session_state.art_front_overhang = st.sidebar.slider(
+        'Front Overhang (m)', 0.0, 3.0, st.session_state.art_front_overhang, 0.1,
+        help='Body length ahead of the front axle (e.g. bucket).',
+    )
+    st.session_state.art_rear_overhang = st.sidebar.slider(
+        'Rear Overhang (m)', 0.0, 3.0, st.session_state.art_rear_overhang, 0.1,
+        help='Body length behind the rear axle (e.g. counterweight).',
     )
     st.session_state.art_front_wheel_r = st.sidebar.slider(
         'Front Wheel Radius (m)', 0.2, 0.8, st.session_state.art_front_wheel_r, 0.05
@@ -523,6 +544,8 @@ else:  # Articulated
         duration=st.session_state.sim_duration,
         time_step=st.session_state.sim_dt,
         method=st.session_state.sim_method,
+        front_overhang=st.session_state.art_front_overhang,
+        rear_overhang=st.session_state.art_rear_overhang,
     )
     group_values = list(drive_velocities)
 
@@ -539,27 +562,31 @@ with st.expander('Kinematic Equations', expanded=False):
     else:
         st.markdown(TRAJECTORY_EQUATIONS)
 
-# Trajectory Lattice
+# Trajectory Lattice — only the longest (highest-velocity) group is shown. Lower velocities are
+# the same trajectory fan at a shorter distance, so rendering all of them is redundant.
+longest_group = [max(group_values)] if group_values else group_values
 st.header('Trajectory Lattice')
-lattice_fig = plot_lattice(trajectories, model_type, group_values)
-st.pyplot(lattice_fig)
+lattice_fig = plot_lattice(trajectories, model_type, longest_group)
+lattice_col, _ = st.columns([2, 1])  # constrain to 2/3 page width so the 16:9 plot isn't full-bleed
+lattice_col.pyplot(lattice_fig)
 plt.close(lattice_fig)
 
 # Kinematic Analysis
 st.header('Kinematic Analysis')
 analysis_fig = plot_analysis(trajectories, model_type, group_values)
-st.pyplot(analysis_fig)
+analysis_col, _ = st.columns([2, 1])  # constrain to 2/3 page width so the plot isn't full-bleed
+analysis_col.pyplot(analysis_fig)
 plt.close(analysis_fig)
 
 # Vehicle Footprint Visualization
 st.header('Vehicle Visualization')
 
+vel_options = list(group_values)
 if model_type == 'Differential Drive':
     model_params = {
         'length': st.session_state.diff_track_width * 1.5,
         'width': st.session_state.diff_track_width,
     }
-    vel_options = list(group_values)
     vel_label = 'Base Wheel Velocity (rad/s)'
     st.caption(f'Vehicle dimensions: {model_params["length"]:.2f}m x {model_params["width"]:.2f}m')
 elif model_type == 'Bicycle':
@@ -567,17 +594,17 @@ elif model_type == 'Bicycle':
         'length': st.session_state.bike_wheelbase,
         'width': st.session_state.bike_track_width,
     }
-    vel_options = list(group_values)
     vel_label = 'Drive Velocity (m/s)'
     st.caption(f'Vehicle dimensions: wheelbase={model_params["length"]:.2f}m, track={model_params["width"]:.2f}m')
 else:  # Articulated
+    # Body lengths are measured from the articulation joint (base_link) to each bumper:
+    # joint-to-axle + overhang.
     model_params = {
-        'front_length': st.session_state.art_to_front,
-        'rear_length': st.session_state.art_to_rear,
+        'front_length': st.session_state.art_to_front + st.session_state.art_front_overhang,
+        'rear_length': st.session_state.art_to_rear + st.session_state.art_rear_overhang,
         'front_width': st.session_state.art_front_track,
         'rear_width': st.session_state.art_rear_track,
     }
-    vel_options = list(group_values)
     vel_label = 'Drive Velocity (m/s)'
     st.caption(
         f'Articulated: front={model_params["front_length"]:.2f}m x {model_params["front_width"]:.2f}m, '
@@ -646,6 +673,14 @@ st.caption(
     'sliders. Drive velocity and simulation horizon are inherited from the sections above.'
 )
 
+
+def _render_single_trajectory(single_traj):
+    """Render one projected trajectory with footprints (shared by all model branches below)."""
+    fig = plot_trajectory_with_footprints([single_traj], model_type, model_params, num_footprints=5)
+    plot_col, _ = st.columns([2, 1])  # constrain to 2/3 page width so the 16:9 plot isn't full-bleed
+    plot_col.pyplot(fig)
+    plt.close(fig)
+
 if model_type == 'Bicycle':
     col_a, col_b, col_c = st.columns(3)
     with col_a:
@@ -687,9 +722,7 @@ if model_type == 'Bicycle':
         duration=st.session_state.sim_duration,
         time_step=st.session_state.sim_dt,
     )
-    single_fig = plot_trajectory_with_footprints([single_traj], model_type, model_params, num_footprints=5)
-    st.pyplot(single_fig)
-    plt.close(single_fig)
+    _render_single_trajectory(single_traj)
     st.caption(
         f'Drive velocity: {viz_vel:.2f} m/s · '
         f'Horizon: {st.session_state.sim_duration:.1f}s · '
@@ -739,10 +772,10 @@ elif model_type == 'Articulated':
         drive_velocity=float(viz_vel),
         duration=st.session_state.sim_duration,
         time_step=st.session_state.sim_dt,
+        front_overhang=st.session_state.art_front_overhang,
+        rear_overhang=st.session_state.art_rear_overhang,
     )
-    single_fig = plot_trajectory_with_footprints([single_traj], model_type, model_params, num_footprints=5)
-    st.pyplot(single_fig)
-    plt.close(single_fig)
+    _render_single_trajectory(single_traj)
     st.caption(
         f'Drive velocity: {viz_vel:.2f} m/s · '
         f'Horizon: {st.session_state.sim_duration:.1f}s · '
@@ -821,9 +854,7 @@ else:  # Differential Drive — ramp linear AND angular body command.
         duration=st.session_state.sim_duration,
         time_step=st.session_state.sim_dt,
     )
-    single_fig = plot_trajectory_with_footprints([single_traj], model_type, model_params, num_footprints=5)
-    st.pyplot(single_fig)
-    plt.close(single_fig)
+    _render_single_trajectory(single_traj)
     st.caption(f'Horizon: {st.session_state.sim_duration:.1f}s · dt: {st.session_state.sim_dt:.3f}s')
 
 # Parameter Table
@@ -904,9 +935,9 @@ st.sidebar.download_button(
     mime='application/json',
 )
 
-# Image Export
+# Image Export — matches the displayed lattice (longest/highest-velocity group only).
 if st.sidebar.button('Export Lattice Image'):
-    export_fig = plot_lattice(trajectories, model_type, group_values)
+    export_fig = plot_lattice(trajectories, model_type, longest_group)
     filename = f'lattice_export.{st.session_state.export_format}'
     if st.session_state.export_format == 'png':
         export_fig.savefig(filename, dpi=st.session_state.export_dpi, bbox_inches='tight')

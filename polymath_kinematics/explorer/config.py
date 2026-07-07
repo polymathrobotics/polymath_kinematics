@@ -24,18 +24,12 @@ FRONT_OVERHANG = 0.7  # How far forward the front extends from center
 HEADING_ARROW_LENGTH = 0.4  # Arrow length as fraction of vehicle length
 HEADING_ARROW_WIDTH = 0.3  # Arrow head width as fraction of vehicle width
 
-# Explicit default footprint dimensions (metres) passed to the projectors so projection emits a
-# real vehicle outline. These are the projector-owned body dimensions (independent of axle/track
-# geometry); the explorer UI seeds its inputs from them.
-# Single-body (differential / bicycle): overhangs measured from the pose reference.
-DEFAULT_FRONT_OVERHANG_M = 1.0
-DEFAULT_REAR_OVERHANG_M = 0.5
-DEFAULT_BODY_WIDTH_M = 0.8
-# Articulated: each body measured from the articulation joint.
-DEFAULT_FRONT_JOINT_TO_BUMPER_M = 2.2
-DEFAULT_FRONT_BODY_WIDTH_M = 2.0
-DEFAULT_REAR_JOINT_TO_BUMPER_M = 2.0
-DEFAULT_REAR_BODY_WIDTH_M = 2.0
+# Articulated footprint overhang defaults (metres, measured beyond the axle to the bumper).
+# The articulated projector's base_link is the articulation joint; joint-to-bumper distances are
+# axle distance + overhang, so a positive overhang makes the body extend behind the rear axle
+# (counterweight) and ahead of the front axle (bucket). The explorer UI seeds its sliders here.
+DEFAULT_ARTICULATED_FRONT_OVERHANG_M = 1.0
+DEFAULT_ARTICULATED_REAR_OVERHANG_M = 0.8
 
 
 @dataclass
