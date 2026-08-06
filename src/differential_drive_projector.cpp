@@ -88,8 +88,7 @@ void DifferentialDriveProjector::fillFootprint(DifferentialDriveProjectedState &
   corners.reserve(4);
   for (int i = 0; i < 4; ++i) {
     corners.push_back(Point2D{
-      state.pose.x + cos_t * local_x[i] - sin_t * local_y[i],
-      state.pose.y + sin_t * local_x[i] + cos_t * local_y[i]});
+      state.pose.x + cos_t * local_x[i] - sin_t * local_y[i], state.pose.y + sin_t * local_x[i] + cos_t * local_y[i]});
   }
 }
 

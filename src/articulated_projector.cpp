@@ -97,9 +97,8 @@ void ArticulatedProjector::fillFootprints(ArticulatedProjectedState & state) con
     const double local_y[4] = {-half_w, -half_w, half_w, half_w};
     corners.reserve(4);
     for (int i = 0; i < 4; ++i) {
-      corners.push_back(Point2D{
-        joint_x + cos_h * local_x[i] - sin_h * local_y[i],
-        joint_y + sin_h * local_x[i] + cos_h * local_y[i]});
+      corners.push_back(
+        Point2D{joint_x + cos_h * local_x[i] - sin_h * local_y[i], joint_y + sin_h * local_x[i] + cos_h * local_y[i]});
     }
     return corners;
   };

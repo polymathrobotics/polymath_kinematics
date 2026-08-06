@@ -169,13 +169,7 @@ constexpr double REAR_BODY_WIDTH = 2.0;
 ArticulatedProjector make_footprint_projector()
 {
   return ArticulatedProjector(
-    make_model(),
-    MIN_ANGLE,
-    MAX_ANGLE,
-    FRONT_JOINT_TO_BUMPER,
-    FRONT_BODY_WIDTH,
-    REAR_JOINT_TO_BUMPER,
-    REAR_BODY_WIDTH);
+    make_model(), MIN_ANGLE, MAX_ANGLE, FRONT_JOINT_TO_BUMPER, FRONT_BODY_WIDTH, REAR_JOINT_TO_BUMPER, REAR_BODY_WIDTH);
 }
 }  // namespace
 

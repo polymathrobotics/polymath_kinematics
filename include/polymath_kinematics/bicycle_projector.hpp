@@ -20,14 +20,6 @@
 #include "polymath_kinematics/bicycle_model.hpp"
 #include "polymath_kinematics/pose2d.hpp"
 
-// TODO(naming): when this projector is in wide use, consider renaming the underlying
-// BicycleModel methods for clarity:
-//   - bodyVelocityToSteering   -> inverseKinematics
-//   - steeringToBodyVelocity   -> forwardKinematics
-// And dropping the _m / _rad / _rad_s unit suffixes from struct fields (units in docs).
-// Also unify the Python Pose2D in polymath_kinematics/__init__.py with the C++ Pose2D
-// bound here.
-
 namespace polymath::kinematics
 {
 

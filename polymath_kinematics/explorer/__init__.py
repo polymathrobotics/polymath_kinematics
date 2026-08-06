@@ -21,11 +21,11 @@ from .config import (
     KINEMATIC_EQUATIONS,
     LATTICE_CONFIG,
     TRAJECTORY_EQUATIONS,
-    TRAJECTORY_EQUATIONS_RK4,
     LatticeConfig,
 )
 from .export import trajectories_to_dataframe
 from .plotting import (
+    get_traj_attr,
     plot_analysis,
     plot_articulated_footprint,
     plot_lattice,
@@ -37,9 +37,6 @@ from .simulation import (
     generate_lattice_articulated,
     generate_lattice_bicycle,
     generate_lattice_differential,
-    simulate_trajectory,
-    simulate_trajectory_euler,
-    simulate_trajectory_rk4,
     single_articulated_trajectory,
     single_bicycle_trajectory,
     single_differential_trajectory,
@@ -64,18 +61,15 @@ __all__ = [
     'LATTICE_CONFIG',
     'LatticeConfig',
     'TRAJECTORY_EQUATIONS',
-    'TRAJECTORY_EQUATIONS_RK4',
     # Simulation
     'generate_lattice_articulated',
     'generate_lattice_bicycle',
     'generate_lattice_differential',
-    'simulate_trajectory',
-    'simulate_trajectory_euler',
-    'simulate_trajectory_rk4',
     'single_articulated_trajectory',
     'single_bicycle_trajectory',
     'single_differential_trajectory',
     # Plotting
+    'get_traj_attr',
     'plot_analysis',
     'plot_articulated_footprint',
     'plot_lattice',

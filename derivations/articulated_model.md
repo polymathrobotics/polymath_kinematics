@@ -18,7 +18,7 @@ A vehicle with two rigid sections connected by a central pivot (the articulation
 - $v$ — forward linear velocity of the vehicle (positive = forward)
 - $\omega$ — yaw rate of the body (positive = counter-clockwise / left turn)
 - $\gamma$ — articulation angle between front and rear sections (positive = left turn, counterclockwise)
-- $\dot{\gamma}$ — articulation angle rate of change (currently fixed at $0$ in the implementation; placeholder for future estimation)
+- $\dot{\gamma}$ — articulation angle rate of change. Supplied by the caller; the two-argument overloads of `bodyVelocityToVehicleState` / `articulationToAxleVelocities` assume steady articulation ($\dot{\gamma} = 0$)
 - $\theta_f$ — heading angle of the front body
 - $\theta_r$ — heading angle of the rear body
 
@@ -206,9 +206,56 @@ Computing `bodyVelocityToVehicleState(v, omega)` to get $\gamma$, then feeding t
 
 ---
 
-## Future work
+## Forward projection (`ArticulatedProjector`)
 
-The $\dot{\gamma}$ term is currently hardcoded to $0$. Once articulation angle rate estimation is available (e.g., from an IMU or joint encoder derivative), it will be incorporated to improve accuracy during transient steering maneuvers.
+`ArticulatedProjector` wraps this model to roll a pose forward in time under a rate-limited
+articulation joint.
+
+**Pose reference.** The public pose is the **articulation joint** (`base_link`), and
+$\theta$ is the **rear-body heading**. The front body is rotated relative to it by
+$\gamma$, matching the $\theta_f = \theta_r + \gamma$ convention above.
+
+**Per step**, given $\Delta t$, the current angle $\gamma_k$, a target $\gamma^\*$, a rate
+limit $\dot{\gamma}_{\max}$, and a commanded $v$:
+
+1. **Clamp then ramp.** The target is first clamped to the joint's mechanical limits, then the
+   angle advances toward it without overshooting:
+   $$\gamma_{k+1} = \gamma_k + \operatorname{clamp}\!\left(\operatorname{clamp}(\gamma^\*,\, \gamma_{\min},\, \gamma_{\max}) - \gamma_k,\; -\dot{\gamma}_{\max}\Delta t,\; +\dot{\gamma}_{\max}\Delta t\right)$$
+   Clamping before ramping means an out-of-range command saturates at the limit rather than
+   oscillating around it.
+2. **Realized rate.** $\dot{\gamma}_k = (\gamma_{k+1} - \gamma_k)/\Delta t$, which falls to $0$
+   once the angle pins at the target. This value — not the rate limit — is fed into the
+   kinematics above, so the $\dot{\gamma}$ term is exercised during the ramp and vanishes at
+   steady state.
+3. **Integrate at the rear axle.** Because $\omega$ here is the rear-axle turning velocity, the
+   joint pose is converted back to the rear axle, Euler-stepped, and converted forward again:
+   $$\mathbf{p}^{\text{rear}}_k = \mathbf{p}_k - L_r\begin{bmatrix}\cos\theta_k\\\sin\theta_k\end{bmatrix}, \qquad \mathbf{p}^{\text{rear}}_{k+1} = \mathbf{p}^{\text{rear}}_k + v\begin{bmatrix}\cos\theta_k\\\sin\theta_k\end{bmatrix}\Delta t$$
+   $$\theta_{k+1} = \operatorname{wrap}(\theta_k + \omega_k \Delta t), \qquad \mathbf{p}_{k+1} = \mathbf{p}^{\text{rear}}_{k+1} + L_r\begin{bmatrix}\cos\theta_{k+1}\\\sin\theta_{k+1}\end{bmatrix}$$
+   The heading is taken at the *start* of the step (explicit Euler). Integrating at the joint
+   directly would trace the wrong arc, since the joint is not the point that moves along the
+   body's velocity vector.
+
+`project(horizon, dt, ...)` repeats this for $\lceil \text{horizon}/\Delta t \rceil$ steps and
+returns $\lceil \text{horizon}/\Delta t \rceil + 1$ samples, with the initial state seeded as
+element 0 so plots have a clean $t = 0$ anchor.
+
+### Footprints
+
+The projector optionally emits a body polygon per sample, keeping the kinematic model itself
+dimension-free. Both bodies are measured from the joint to their bumper:
+$\text{joint-to-bumper} = \text{joint-to-axle} + \text{overhang}$, so a positive rear overhang
+extends the body behind the rear axle (counterweight) and a positive front overhang ahead of
+the front axle (bucket).
+
+Each polygon is 4 corners, counter-clockwise, **not** closed (the first corner is not repeated).
+The front body is ordered [joint-right, bumper-right, bumper-left, joint-left] and the rear body
+[bumper-right, joint-right, joint-left, bumper-left], so the joint is recoverable as the
+midpoint of the two joint-side corners. A body width of $0$ or less means "unset": the footprint
+comes back empty and projection proceeds normally rather than throwing.
+
+---
+
+## Future work
 
 Add diagrams to the readme for visualization
 

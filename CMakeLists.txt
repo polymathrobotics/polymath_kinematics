@@ -1,6 +1,4 @@
 # Copyright (c) 2025-present Polymath Robotics, Inc. All rights reserved
-# Proprietary. Any unauthorized copying, distribution, or modification of this software is strictly prohibited.
-# Copyright (c) 2025-present Polymath Robotics, Inc. All rights reserved
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -115,7 +113,9 @@ if(BUILD_TESTING)
     target_link_libraries(${TEST_NAME} PRIVATE polymath_kinematics Catch2::Catch2WithMain)
     target_include_directories(${TEST_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/test)
     if(COMMAND catch_discover_tests)
-      catch_discover_tests(${TEST_NAME})
+      # PRE_TEST enumerates at ctest time. The default POST_BUILD runs each test binary during the
+      # build, where an older installed libpolymath_kinematics.so wins on LD_LIBRARY_PATH.
+      catch_discover_tests(${TEST_NAME} DISCOVERY_MODE PRE_TEST)
     else()
       add_test(NAME ${TEST_NAME} COMMAND ${TEST_NAME})
     endif()

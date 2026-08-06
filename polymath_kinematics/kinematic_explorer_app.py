@@ -30,7 +30,6 @@ from polymath_kinematics.explorer import (
     KINEMATIC_EQUATIONS,
     LATTICE_CONFIG,
     TRAJECTORY_EQUATIONS,
-    TRAJECTORY_EQUATIONS_RK4,
     AnyTrajectory,
     ArticulatedTrajectory,
     BicycleTrajectory,
@@ -38,9 +37,11 @@ from polymath_kinematics.explorer import (
     generate_lattice_articulated,
     generate_lattice_bicycle,
     generate_lattice_differential,
+    get_traj_attr,
     plot_analysis,
     plot_lattice,
     plot_trajectory_with_footprints,
+    select_symmetric_trajectories,
     single_articulated_trajectory,
     single_bicycle_trajectory,
     single_differential_trajectory,
@@ -49,10 +50,11 @@ from polymath_kinematics.explorer import (
 from polymath_kinematics.explorer.config import (
     DEFAULT_ARTICULATED_FRONT_OVERHANG_M,
     DEFAULT_ARTICULATED_REAR_OVERHANG_M,
-    FRONT_OVERHANG,
-    REAR_AXLE_POSITION,
+    DEFAULT_BICYCLE_FRONT_OVERHANG_M,
+    DEFAULT_BICYCLE_REAR_OVERHANG_M,
+    DEFAULT_DIFFERENTIAL_FRONT_OVERHANG_M,
+    DEFAULT_DIFFERENTIAL_REAR_OVERHANG_M,
 )
-from polymath_kinematics.explorer.plotting import _get_traj_attr
 
 
 @st.cache_data
@@ -63,10 +65,20 @@ def _cached_lattice_differential(
     wheel_velocity_diffs: tuple[float, ...],
     duration: float,
     time_step: float,
-    method: str,
+    front_overhang: float,
+    rear_overhang: float,
 ) -> list[DifferentialTrajectory]:
     return generate_lattice_differential(
-        wheel_radius, track_width, base_wheel_velocities, wheel_velocity_diffs, duration, time_step, method
+        wheel_radius,
+        track_width,
+        base_wheel_velocities,
+        wheel_velocity_diffs,
+        duration,
+        time_step,
+        # Pose reference is the body centre, so the overhangs are the bumper distances directly.
+        front_overhang_m=front_overhang,
+        rear_overhang_m=rear_overhang,
+        body_width_m=track_width,
     )
 
 
@@ -79,7 +91,8 @@ def _cached_lattice_bicycle(
     steering_angles: tuple[float, ...],
     duration: float,
     time_step: float,
-    method: str,
+    front_overhang: float,
+    rear_overhang: float,
 ) -> list[BicycleTrajectory]:
     return generate_lattice_bicycle(
         wheelbase,
@@ -89,9 +102,9 @@ def _cached_lattice_bicycle(
         steering_angles,
         duration,
         time_step,
-        method,
-        front_overhang_m=wheelbase * FRONT_OVERHANG,
-        rear_overhang_m=wheelbase * REAR_AXLE_POSITION,
+        # Pose reference is the rear axle; front bumper = wheelbase + overhang.
+        front_overhang_m=wheelbase + front_overhang,
+        rear_overhang_m=rear_overhang,
         body_width_m=track_width,
     )
 
@@ -108,7 +121,6 @@ def _cached_lattice_articulated(
     articulation_angles: tuple[float, ...],
     duration: float,
     time_step: float,
-    method: str,
     front_overhang: float,
     rear_overhang: float,
 ) -> list[ArticulatedTrajectory]:
@@ -123,7 +135,6 @@ def _cached_lattice_articulated(
         articulation_angles,
         duration,
         time_step,
-        method,
         # base_link is the articulation joint; joint-to-bumper = joint-to-axle + overhang.
         front_joint_to_bumper_m=articulation_to_front + front_overhang,
         front_body_width_m=front_track,
@@ -143,6 +154,8 @@ def _cached_single_bicycle(
     drive_velocity: float,
     duration: float,
     time_step: float,
+    front_overhang: float,
+    rear_overhang: float,
 ) -> BicycleTrajectory:
     return single_bicycle_trajectory(
         wheelbase,
@@ -154,8 +167,9 @@ def _cached_single_bicycle(
         drive_velocity=drive_velocity,
         duration=duration,
         time_step=time_step,
-        front_overhang_m=wheelbase * FRONT_OVERHANG,
-        rear_overhang_m=wheelbase * REAR_AXLE_POSITION,
+        # Pose reference is the rear axle; see _cached_lattice_bicycle.
+        front_overhang_m=wheelbase + front_overhang,
+        rear_overhang_m=rear_overhang,
         body_width_m=track_width,
     )
 
@@ -210,9 +224,9 @@ def _cached_single_differential(
     angular_acceleration: float,
     duration: float,
     time_step: float,
+    front_overhang: float,
+    rear_overhang: float,
 ) -> DifferentialTrajectory:
-    # Vehicle length is track_width * 1.5 to match the plotted footprint box.
-    length = track_width * 1.5
     return single_differential_trajectory(
         wheel_radius,
         track_width,
@@ -224,8 +238,9 @@ def _cached_single_differential(
         angular_acceleration=angular_acceleration,
         duration=duration,
         time_step=time_step,
-        front_overhang_m=length * FRONT_OVERHANG,
-        rear_overhang_m=length * REAR_AXLE_POSITION,
+        # Pose reference is the body centre; see _cached_lattice_differential.
+        front_overhang_m=front_overhang,
+        rear_overhang_m=rear_overhang,
         body_width_m=track_width,
     )
 
@@ -238,7 +253,6 @@ def get_config_dict(model_type: str) -> dict:
         'simulation': {
             'duration': st.session_state.sim_duration,
             'dt': st.session_state.sim_dt,
-            'method': st.session_state.get('sim_method', 'euler'),
         },
     }
 
@@ -246,6 +260,8 @@ def get_config_dict(model_type: str) -> dict:
         config['model_parameters'] = {
             'wheel_radius': st.session_state.diff_wheel_radius,
             'track_width': st.session_state.diff_track_width,
+            'front_overhang': st.session_state.diff_front_overhang,
+            'rear_overhang': st.session_state.diff_rear_overhang,
         }
         config['control_inputs'] = {
             'base_vel_min': st.session_state.diff_base_vel_min,
@@ -259,6 +275,8 @@ def get_config_dict(model_type: str) -> dict:
             'wheelbase': st.session_state.bike_wheelbase,
             'track_width': st.session_state.bike_track_width,
             'wheel_radius': st.session_state.bike_wheel_radius,
+            'front_overhang': st.session_state.bike_front_overhang,
+            'rear_overhang': st.session_state.bike_rear_overhang,
         }
         config['control_inputs'] = {
             'v_min': st.session_state.bike_v_min,
@@ -275,6 +293,8 @@ def get_config_dict(model_type: str) -> dict:
             'rear_track_width': st.session_state.art_rear_track,
             'front_wheel_radius': st.session_state.art_front_wheel_r,
             'rear_wheel_radius': st.session_state.art_rear_wheel_r,
+            'front_overhang': st.session_state.art_front_overhang,
+            'rear_overhang': st.session_state.art_rear_overhang,
         }
         config['control_inputs'] = {
             'v_min': st.session_state.art_v_min,
@@ -293,6 +313,8 @@ def init_session_state():
         # Differential Drive
         'diff_wheel_radius': 0.1,
         'diff_track_width': 0.5,
+        'diff_front_overhang': DEFAULT_DIFFERENTIAL_FRONT_OVERHANG_M,
+        'diff_rear_overhang': DEFAULT_DIFFERENTIAL_REAR_OVERHANG_M,
         'diff_base_vel_min': 5.0,
         'diff_base_vel_max': 15.0,
         'diff_n_base_vels': 3,
@@ -302,6 +324,8 @@ def init_session_state():
         'bike_wheelbase': 2.5,
         'bike_track_width': 1.5,
         'bike_wheel_radius': 0.3,
+        'bike_front_overhang': DEFAULT_BICYCLE_FRONT_OVERHANG_M,
+        'bike_rear_overhang': DEFAULT_BICYCLE_REAR_OVERHANG_M,
         'bike_v_min': 1.0,
         'bike_v_max': 3.0,
         'bike_n_velocities': 3,
@@ -324,7 +348,6 @@ def init_session_state():
         # Simulation
         'sim_duration': 3.0,
         'sim_dt': 0.02,
-        'sim_method': 'euler',
         'export_dpi': 150,
         'export_format': 'png',
     }
@@ -352,9 +375,28 @@ if model_type == 'Differential Drive':
     st.session_state.diff_track_width = st.sidebar.slider(
         'Track Width (m)', 0.2, 2.0, st.session_state.diff_track_width, 0.05
     )
+    st.session_state.diff_front_overhang = st.sidebar.slider(
+        'Front Overhang (m)',
+        0.0,
+        2.0,
+        st.session_state.diff_front_overhang,
+        0.05,
+        help='Body length ahead of the body centre (the pose reference).',
+    )
+    st.session_state.diff_rear_overhang = st.sidebar.slider(
+        'Rear Overhang (m)',
+        0.0,
+        2.0,
+        st.session_state.diff_rear_overhang,
+        0.05,
+        help='Body length behind the body centre (the pose reference).',
+    )
     st.sidebar.markdown('---')
     st.sidebar.markdown(f'**Wheel Radius:** {st.session_state.diff_wheel_radius:.2f} m')
     st.sidebar.markdown(f'**Track Width:** {st.session_state.diff_track_width:.2f} m')
+    st.sidebar.markdown(
+        f'**Body Length:** {st.session_state.diff_front_overhang + st.session_state.diff_rear_overhang:.2f} m'
+    )
 
 elif model_type == 'Bicycle':
     st.session_state.bike_wheelbase = st.sidebar.slider('Wheelbase (m)', 1.0, 5.0, st.session_state.bike_wheelbase, 0.1)
@@ -364,9 +406,30 @@ elif model_type == 'Bicycle':
     st.session_state.bike_wheel_radius = st.sidebar.slider(
         'Wheel Radius (m)', 0.1, 0.6, st.session_state.bike_wheel_radius, 0.05
     )
+    st.session_state.bike_front_overhang = st.sidebar.slider(
+        'Front Overhang (m)',
+        0.0,
+        2.0,
+        st.session_state.bike_front_overhang,
+        0.05,
+        help='Body length ahead of the FRONT axle. The pose reference is the rear axle, so the '
+        'front bumper sits a wheelbase plus this overhang ahead of it.',
+    )
+    st.session_state.bike_rear_overhang = st.sidebar.slider(
+        'Rear Overhang (m)',
+        0.0,
+        2.0,
+        st.session_state.bike_rear_overhang,
+        0.05,
+        help='Body length behind the rear axle (the pose reference).',
+    )
     st.sidebar.markdown('---')
     st.sidebar.markdown(f'**Wheelbase:** {st.session_state.bike_wheelbase:.2f} m')
     st.sidebar.markdown(f'**Track Width:** {st.session_state.bike_track_width:.2f} m')
+    st.sidebar.markdown(
+        f'**Body Length:** '
+        f'{st.session_state.bike_wheelbase + st.session_state.bike_front_overhang + st.session_state.bike_rear_overhang:.2f} m'
+    )
 
 elif model_type == 'Articulated':
     st.session_state.art_to_front = st.sidebar.slider(
@@ -382,11 +445,19 @@ elif model_type == 'Articulated':
         'Rear Track Width (m)', 1.0, 3.0, st.session_state.art_rear_track, 0.1
     )
     st.session_state.art_front_overhang = st.sidebar.slider(
-        'Front Overhang (m)', 0.0, 3.0, st.session_state.art_front_overhang, 0.1,
+        'Front Overhang (m)',
+        0.0,
+        3.0,
+        st.session_state.art_front_overhang,
+        0.1,
         help='Body length ahead of the front axle (e.g. bucket).',
     )
     st.session_state.art_rear_overhang = st.sidebar.slider(
-        'Rear Overhang (m)', 0.0, 3.0, st.session_state.art_rear_overhang, 0.1,
+        'Rear Overhang (m)',
+        0.0,
+        3.0,
+        st.session_state.art_rear_overhang,
+        0.1,
         help='Body length behind the rear axle (e.g. counterweight).',
     )
     st.session_state.art_front_wheel_r = st.sidebar.slider(
@@ -405,12 +476,7 @@ st.session_state.sim_duration = st.sidebar.slider(
 )
 
 with st.sidebar.expander('Advanced Settings'):
-    st.session_state.sim_method = st.selectbox(
-        'Integration Method',
-        ['euler', 'rk4'],
-        index=0 if st.session_state.sim_method == 'euler' else 1,
-        help='RK4 is more accurate, Euler is faster',
-    )
+    st.caption('Trajectories come from the C++ projectors (Euler integration at the time step below).')
     st.session_state.sim_dt = st.slider(
         'Time Step (s)',
         0.005,
@@ -462,7 +528,8 @@ if model_type == 'Differential Drive':
         wheel_velocity_diffs=wheel_diffs,
         duration=st.session_state.sim_duration,
         time_step=st.session_state.sim_dt,
-        method=st.session_state.sim_method,
+        front_overhang=st.session_state.diff_front_overhang,
+        rear_overhang=st.session_state.diff_rear_overhang,
     )
     group_values = list(base_wheel_velocities)
 
@@ -502,7 +569,8 @@ elif model_type == 'Bicycle':
         steering_angles=steering_angles,
         duration=st.session_state.sim_duration,
         time_step=st.session_state.sim_dt,
-        method=st.session_state.sim_method,
+        front_overhang=st.session_state.bike_front_overhang,
+        rear_overhang=st.session_state.bike_rear_overhang,
     )
     group_values = list(drive_velocities)
 
@@ -543,7 +611,6 @@ else:  # Articulated
         articulation_angles=articulation_angles,
         duration=st.session_state.sim_duration,
         time_step=st.session_state.sim_dt,
-        method=st.session_state.sim_method,
         front_overhang=st.session_state.art_front_overhang,
         rear_overhang=st.session_state.art_rear_overhang,
     )
@@ -557,10 +624,7 @@ with st.expander('Kinematic Equations', expanded=False):
         st.latex(eq)
     st.markdown(eq_info['variables'])
     st.markdown('---')
-    if st.session_state.sim_method == 'rk4':
-        st.markdown(TRAJECTORY_EQUATIONS_RK4)
-    else:
-        st.markdown(TRAJECTORY_EQUATIONS)
+    st.markdown(TRAJECTORY_EQUATIONS)
 
 # Trajectory Lattice — only the longest (highest-velocity) group is shown. Lower velocities are
 # the same trajectory fan at a shorter distance, so rendering all of them is redundant.
@@ -582,33 +646,35 @@ plt.close(analysis_fig)
 st.header('Vehicle Visualization')
 
 vel_options = list(group_values)
+# Body outlines come from the projector footprints; model_params only carries what the corners
+# can't give us — the bicycle's front-axle offset and track width.
+model_params: dict = {}
 if model_type == 'Differential Drive':
-    model_params = {
-        'length': st.session_state.diff_track_width * 1.5,
-        'width': st.session_state.diff_track_width,
-    }
     vel_label = 'Base Wheel Velocity (rad/s)'
-    st.caption(f'Vehicle dimensions: {model_params["length"]:.2f}m x {model_params["width"]:.2f}m')
+    body_length = st.session_state.diff_front_overhang + st.session_state.diff_rear_overhang
+    st.caption(f'Vehicle dimensions: {body_length:.2f}m x {st.session_state.diff_track_width:.2f}m')
 elif model_type == 'Bicycle':
     model_params = {
-        'length': st.session_state.bike_wheelbase,
-        'width': st.session_state.bike_track_width,
+        'wheelbase': st.session_state.bike_wheelbase,
+        'track_width': st.session_state.bike_track_width,
     }
     vel_label = 'Drive Velocity (m/s)'
-    st.caption(f'Vehicle dimensions: wheelbase={model_params["length"]:.2f}m, track={model_params["width"]:.2f}m')
+    body_length = (
+        st.session_state.bike_wheelbase + st.session_state.bike_front_overhang + st.session_state.bike_rear_overhang
+    )
+    st.caption(
+        f'Vehicle dimensions: {body_length:.2f}m x {st.session_state.bike_track_width:.2f}m '
+        f'(wheelbase={st.session_state.bike_wheelbase:.2f}m)'
+    )
 else:  # Articulated
+    vel_label = 'Drive Velocity (m/s)'
     # Body lengths are measured from the articulation joint (base_link) to each bumper:
     # joint-to-axle + overhang.
-    model_params = {
-        'front_length': st.session_state.art_to_front + st.session_state.art_front_overhang,
-        'rear_length': st.session_state.art_to_rear + st.session_state.art_rear_overhang,
-        'front_width': st.session_state.art_front_track,
-        'rear_width': st.session_state.art_rear_track,
-    }
-    vel_label = 'Drive Velocity (m/s)'
+    front_length = st.session_state.art_to_front + st.session_state.art_front_overhang
+    rear_length = st.session_state.art_to_rear + st.session_state.art_rear_overhang
     st.caption(
-        f'Articulated: front={model_params["front_length"]:.2f}m x {model_params["front_width"]:.2f}m, '
-        f'rear={model_params["rear_length"]:.2f}m x {model_params["rear_width"]:.2f}m'
+        f'Articulated: front={front_length:.2f}m x {st.session_state.art_front_track:.2f}m, '
+        f'rear={rear_length:.2f}m x {st.session_state.art_rear_track:.2f}m'
     )
 
 col1, col2 = st.columns([3, 1])
@@ -640,23 +706,13 @@ with col2:
 
 with col1:
     config = LATTICE_CONFIG[model_type]
+    # Narrow to the chosen velocity first, then let the library pick a symmetric angle subset.
     velocity_filtered = [
-        trajectory for trajectory in trajectories if abs(_get_traj_attr(trajectory, config.vel_key) - viz_vel) < 0.05
+        trajectory for trajectory in trajectories if abs(get_traj_attr(trajectory, config.vel_key) - viz_vel) < 0.05
     ]
-
-    all_angles = sorted(set(_get_traj_attr(trajectory, config.angle_key) for trajectory in velocity_filtered))
-    if len(all_angles) <= num_angles_viz:
-        selected_angles = set(all_angles)
-    else:
-        indices = np.linspace(0, len(all_angles) - 1, num_angles_viz, dtype=int)
-        selected_angles = {all_angles[index] for index in indices}
-
-    viz_trajectories = [
-        trajectory
-        for trajectory in velocity_filtered
-        if any(abs(_get_traj_attr(trajectory, config.angle_key) - angle) < 1e-6 for angle in selected_angles)
-    ]
-    viz_trajectories.sort(key=lambda trajectory: _get_traj_attr(trajectory, config.angle_key))
+    viz_trajectories = select_symmetric_trajectories(
+        velocity_filtered, model_type, num_angles=num_angles_viz, num_velocities=1
+    )
 
     if viz_trajectories:
         footprint_fig = plot_trajectory_with_footprints(viz_trajectories, model_type, model_params, num_footprints)
@@ -680,6 +736,7 @@ def _render_single_trajectory(single_traj):
     plot_col, _ = st.columns([2, 1])  # constrain to 2/3 page width so the 16:9 plot isn't full-bleed
     plot_col.pyplot(fig)
     plt.close(fig)
+
 
 if model_type == 'Bicycle':
     col_a, col_b, col_c = st.columns(3)
@@ -721,6 +778,8 @@ if model_type == 'Bicycle':
         drive_velocity=float(viz_vel),
         duration=st.session_state.sim_duration,
         time_step=st.session_state.sim_dt,
+        front_overhang=st.session_state.bike_front_overhang,
+        rear_overhang=st.session_state.bike_rear_overhang,
     )
     _render_single_trajectory(single_traj)
     st.caption(
@@ -853,6 +912,8 @@ else:  # Differential Drive — ramp linear AND angular body command.
         angular_acceleration=float(single_angular_accel),
         duration=st.session_state.sim_duration,
         time_step=st.session_state.sim_dt,
+        front_overhang=st.session_state.diff_front_overhang,
+        rear_overhang=st.session_state.diff_rear_overhang,
     )
     _render_single_trajectory(single_traj)
     st.caption(f'Horizon: {st.session_state.sim_duration:.1f}s · dt: {st.session_state.sim_dt:.3f}s')
@@ -873,11 +934,7 @@ with st.expander('Current Configuration', expanded=False):
             st.markdown(f'- {key.replace("_", " ").title()}: `{value}`')
 
     st.markdown('**Simulation Settings:**')
-    st.markdown(
-        f'- Duration: `{config_dict["simulation"]["duration"]}s`, '
-        f'dt: `{config_dict["simulation"]["dt"]}s`, '
-        f'Method: `{config_dict["simulation"]["method"]}`'
-    )
+    st.markdown(f'- Duration: `{config_dict["simulation"]["duration"]}s`, dt: `{config_dict["simulation"]["dt"]}s`')
 
 # Summary stats
 st.header('Summary')
@@ -935,30 +992,19 @@ st.sidebar.download_button(
     mime='application/json',
 )
 
-# Image Export — matches the displayed lattice (longest/highest-velocity group only).
-if st.sidebar.button('Export Lattice Image'):
-    export_fig = plot_lattice(trajectories, model_type, longest_group)
-    filename = f'lattice_export.{st.session_state.export_format}'
-    if st.session_state.export_format == 'png':
-        export_fig.savefig(filename, dpi=st.session_state.export_dpi, bbox_inches='tight')
-    else:
-        export_fig.savefig(filename, bbox_inches='tight')
-    plt.close(export_fig)
-    st.sidebar.success(f'Saved: {filename}')
-
-
-def main():
-    """Entry point for launching the Kinematic Explorer via ros2 run or CLI."""
-    import subprocess
-    import sys
-
-    cmd = [
-        sys.executable,
-        '-m',
-        'streamlit',
-        'run',
-        __file__,
-        '--server.address=localhost',
-        '--browser.gatherUsageStats=false',
-    ]
-    sys.exit(subprocess.call(cmd))
+# Image Export — matches the displayed lattice (longest/highest-velocity group only), rendered
+# into memory so the browser downloads it rather than the server writing a file.
+image_format = st.session_state.export_format
+image_buffer = io.BytesIO()
+export_fig = plot_lattice(trajectories, model_type, longest_group)
+save_kwargs = {'bbox_inches': 'tight', 'format': image_format}
+if image_format == 'png':
+    save_kwargs['dpi'] = st.session_state.export_dpi
+export_fig.savefig(image_buffer, **save_kwargs)
+plt.close(export_fig)
+st.sidebar.download_button(
+    label=f'Download Lattice Image ({image_format.upper()})',
+    data=image_buffer.getvalue(),
+    file_name=f'lattice_{model_type.lower().replace(" ", "_")}.{image_format}',
+    mime={'png': 'image/png', 'svg': 'image/svg+xml', 'pdf': 'application/pdf'}[image_format],
+)

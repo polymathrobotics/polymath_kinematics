@@ -35,3 +35,46 @@ jobs:
         with:
           name: colcon-logs-${{ matrix.ros }}
           path: ros_ws/log
+
+  # The pytest suites only run under colcon above, so cover the wheel path the explorer uses.
+  wheel_and_explorer:
+    runs-on: ubuntu-latest
+    name: Wheel and explorer
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Install package with dev extra
+        run: uv venv && uv pip install -e ".[dev]"
+      - name: Python tests
+        run: uv run pytest test/test_python_bindings.py test/test_explorer.py -v
+      - name: Explorer imports cleanly
+        run: uv run python -c "import polymath_kinematics.explorer"
+      - name: Console script resolves and launches
+        # A healthy headless start proves the entry point doesn't run the app body on import.
+        run: |
+          uv run kinematic-explorer --server.headless=true --server.port=8501 &
+          for _ in $(seq 1 60); do
+            if curl -sf http://localhost:8501/_stcore/health; then exit 0; fi
+            sleep 1
+          done
+          echo "explorer failed to become healthy" >&2
+          exit 1
+
+  standalone_cmake:
+    runs-on: ubuntu-latest
+    name: Standalone CMake + ctest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake g++ catch2 pybind11-dev python3-dev
+      - name: Configure
+        # CMAKE_DISABLE_FIND_PACKAGE_ament_cmake forces the non-ament branch.
+        run: >
+          cmake -S . -B build -DBUILD_TESTING=ON
+          -DCMAKE_DISABLE_FIND_PACKAGE_ament_cmake=ON
+      - name: Build
+        run: cmake --build build -j
+      - name: Test
+        run: ctest --test-dir build --output-on-failure

@@ -89,5 +89,49 @@ $$\omega_{\text{fr}} = \frac{\omega \cdot \operatorname{copysign}\!\left(\sqrt{(
 | $\omega \approx 0,\; v \neq 0$ | Straight line. All wheels spin at $v / r$ |
 | $\|R\| < W/2$ | ICR between rear wheels. Inner wheel reverses direction (handled by $\operatorname{copysign}$) |
 
+## Forward projection (`BicycleProjector`)
+
+`BicycleProjector` wraps this model to roll a pose forward in time under a rate-limited steering
+actuator.
+
+**Pose reference.** The pose is the **rear axle** centre, the standard bicycle-model reference —
+it is the point that travels along the body velocity vector, so no frame conversion is needed
+during integration.
+
+**Per step**, given $\Delta t$, the current angle $\delta_k$, a target $\delta^\*$, a rate limit
+$\dot{\delta}_{\max}$, and a commanded $v$:
+
+1. **Clamp then ramp.** The target is clamped to the actuator's limits first, then the angle
+   advances toward it without overshooting:
+   $$\delta_{k+1} = \delta_k + \operatorname{clamp}\!\left(\operatorname{clamp}(\delta^\*,\, \delta_{\min},\, \delta_{\max}) - \delta_k,\; -\dot{\delta}_{\max}\Delta t,\; +\dot{\delta}_{\max}\Delta t\right)$$
+   Clamping before ramping means an out-of-range command saturates at the limit rather than
+   oscillating around it.
+2. **Forward kinematics** with the post-ramp angle gives the body yaw rate:
+   $\omega_k = v \tan(\delta_{k+1}) / L$.
+3. **Euler pose update**, heading taken at the *start* of the step:
+   $$x_{k+1} = x_k + v\cos\theta_k\,\Delta t, \qquad y_{k+1} = y_k + v\sin\theta_k\,\Delta t, \qquad \theta_{k+1} = \operatorname{wrap}(\theta_k + \omega_k \Delta t)$$
+
+Each sample also carries the full `BicycleSteeringState` (four wheel speeds and turning radius)
+from running the inverse kinematics on $\omega_k$.
+
+`project(horizon, dt, ...)` repeats this for $\lceil \text{horizon}/\Delta t \rceil$ steps and
+returns $\lceil \text{horizon}/\Delta t \rceil + 1$ samples, with the initial state seeded as
+element 0 so plots have a clean $t = 0$ anchor.
+
+### Footprints
+
+The projector optionally emits a body polygon per sample, keeping the kinematic model itself
+dimension-free. The body is the rectangle spanning
+$[-\text{rear\_overhang},\; +\text{front\_overhang}]$ along the heading by
+$\text{body\_width}$ across — **both distances measured from the pose reference (the rear
+axle)**. Since the front axle sits a full wheelbase ahead of that reference, a physical vehicle
+has
+$$\text{front\_overhang}_{\text{param}} = L + \text{(overhang past the front axle)}$$
+Passing a value smaller than $L$ would place the front bumper *behind* the front axle.
+
+Each polygon is 4 corners, counter-clockwise, **not** closed (the first corner is not repeated),
+ordered [rear-right, front-right, front-left, rear-left]. A body width of $0$ or less means
+"unset": the footprint comes back empty and projection proceeds normally rather than throwing.
+
 ## Future Work
 Add diagrams to the readme for visualization

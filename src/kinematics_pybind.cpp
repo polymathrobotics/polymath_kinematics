@@ -154,8 +154,7 @@ PYBIND11_MODULE(polymath_kinematics_cpp, m)
   // Python list of Point2D via pybind11/stl.h.
   py::class_<Point2D>(m, "Point2D")
     .def(py::init<>())
-    .def(
-      py::init([](double x, double y) { return Point2D{x, y}; }), py::arg("x") = 0.0, py::arg("y") = 0.0)
+    .def(py::init([](double x, double y) { return Point2D{x, y}; }), py::arg("x") = 0.0, py::arg("y") = 0.0)
     .def_readwrite("x", &Point2D::x)
     .def_readwrite("y", &Point2D::y);
 

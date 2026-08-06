@@ -27,7 +27,7 @@ dev = [
 ]
 
 [project.scripts]
-kinematic-explorer = "polymath_kinematics.kinematic_explorer_app:main"
+kinematic-explorer = "polymath_kinematics.explorer.cli:main"
 
 [tool.scikit-build]
 cmake.version = ">=3.15"
@@ -39,10 +39,7 @@ build.verbose = false
 cmake.args = ["-DBUILD_TESTING=OFF", "-DCMAKE_DISABLE_FIND_PACKAGE_ament_cmake=ON"]
 wheel.packages = ["polymath_kinematics"]
 
+# uv reads this; defers to the extras above so the pins live in one place.
 [dependency-groups]
-dev = [
-    "pytest>=7.0.0",
-    "streamlit>=1.20.0",
-    "matplotlib>=3.5.0",
-    "pandas>=1.4.0",
-]
+dev = [{ include-group = "explorer" }, "pytest>=7.0.0"]
+explorer = ["polymath_kinematics[explorer]"]

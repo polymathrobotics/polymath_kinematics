@@ -57,6 +57,47 @@ $$d_{\text{ICR}} = \frac{v}{\omega} = \frac{W}{2} \cdot \frac{\omega_R + \omega_
 
 When the robot drives straight, the ICR is at infinity. When spinning in place, it is at the origin.
 
+## Forward projection (`DifferentialDriveProjector`)
+
+`DifferentialDriveProjector` wraps this model to roll a pose forward in time under acceleration
+limits. Unlike the bicycle and articulated projectors — which rate-limit a steering *angle* — a
+differential drive has no steered joint, so what is limited here is the **body command itself**:
+$v$ and $\omega$ each ramp toward their target under their own acceleration limit.
+
+**Pose reference.** The pose is the **body centre** (midway between the two wheels), the point
+the ICR distance is measured from above.
+
+**Per step**, given $\Delta t$, current $(v_k, \omega_k)$, targets $(v^\*, \omega^\*)$, and
+limits $(a_{\max}, \alpha_{\max})$:
+
+1. **Clamp then ramp**, independently per channel, neither overshooting:
+   $$v_{k+1} = v_k + \operatorname{clamp}\!\left(\operatorname{clamp}(v^\*,\, v_{\min},\, v_{\max}) - v_k,\; -a_{\max}\Delta t,\; +a_{\max}\Delta t\right)$$
+   $$\omega_{k+1} = \omega_k + \operatorname{clamp}\!\left(\operatorname{clamp}(\omega^\*,\, \omega_{\min},\, \omega_{\max}) - \omega_k,\; -\alpha_{\max}\Delta t,\; +\alpha_{\max}\Delta t\right)$$
+   Clamping before ramping means an out-of-range command saturates at the limit rather than
+   oscillating around it.
+2. **Inverse kinematics** on the post-ramp command gives the wheel speeds recorded on the sample.
+3. **Euler pose update**, using the post-ramp velocities with the heading taken at the *start* of
+   the step:
+   $$x_{k+1} = x_k + v_{k+1}\cos\theta_k\,\Delta t, \qquad y_{k+1} = y_k + v_{k+1}\sin\theta_k\,\Delta t, \qquad \theta_{k+1} = \operatorname{wrap}(\theta_k + \omega_{k+1} \Delta t)$$
+
+`project(horizon, dt, ...)` repeats this for $\lceil \text{horizon}/\Delta t \rceil$ steps and
+returns $\lceil \text{horizon}/\Delta t \rceil + 1$ samples, with the initial state seeded as
+element 0 so plots have a clean $t = 0$ anchor. Setting initial $=$ target makes the ramp a
+no-op, which is how a constant-command trajectory (e.g. one lattice cell) is generated.
+
+### Footprints
+
+The projector optionally emits a body polygon per sample, keeping the kinematic model itself
+dimension-free. The body is the rectangle spanning
+$[-\text{rear\_overhang},\; +\text{front\_overhang}]$ along the heading by
+$\text{body\_width}$ across, measured from the pose reference. Because that reference is the
+body centre, both overhangs are the bumper distances directly — there is no wheelbase term as
+in the bicycle model.
+
+Each polygon is 4 corners, counter-clockwise, **not** closed (the first corner is not repeated),
+ordered [rear-right, front-right, front-left, rear-left]. A body width of $0$ or less means
+"unset": the footprint comes back empty and projection proceeds normally rather than throwing.
+
 ## Future Work
 
 Add diagrams to the readme for visualization

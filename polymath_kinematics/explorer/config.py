@@ -17,17 +17,19 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-# Vehicle footprint positioning (fraction of length) — used only by the fallback footprint
-# drawing path when a projector-computed footprint is not available.
-REAR_AXLE_POSITION = 0.3  # How far back the rear axle is from center
-FRONT_OVERHANG = 0.7  # How far forward the front extends from center
-HEADING_ARROW_LENGTH = 0.4  # Arrow length as fraction of vehicle length
-HEADING_ARROW_WIDTH = 0.3  # Arrow head width as fraction of vehicle width
+# Footprint overhang slider defaults (metres, measured beyond the reference axle/centre).
 
-# Articulated footprint overhang defaults (metres, measured beyond the axle to the bumper).
-# The articulated projector's base_link is the articulation joint; joint-to-bumper distances are
-# axle distance + overhang, so a positive overhang makes the body extend behind the rear axle
-# (counterweight) and ahead of the front axle (bucket). The explorer UI seeds its sliders here.
+# Bicycle: pose reference is the rear axle, so front_overhang_m = wheelbase + front overhang.
+DEFAULT_BICYCLE_FRONT_OVERHANG_M = 0.6
+DEFAULT_BICYCLE_REAR_OVERHANG_M = 0.5
+
+# Differential drive: pose reference is the body centre, so the overhangs pass through directly.
+DEFAULT_DIFFERENTIAL_FRONT_OVERHANG_M = 0.4
+DEFAULT_DIFFERENTIAL_REAR_OVERHANG_M = 0.4
+
+# Articulated: base_link is the articulation joint; joint-to-bumper distances are axle distance +
+# overhang, so a positive overhang makes the body extend behind the rear axle (counterweight) and
+# ahead of the front axle (bucket).
 DEFAULT_ARTICULATED_FRONT_OVERHANG_M = 1.0
 DEFAULT_ARTICULATED_REAR_OVERHANG_M = 0.8
 
@@ -107,17 +109,12 @@ KINEMATIC_EQUATIONS = {
             r'\omega = \frac{v \sin\gamma + L_r \dot{\gamma}}{L_f \cos\gamma + L_r}',
             r'R_f = \frac{L_f \cos\gamma + L_r}{\sin\gamma}',
         ],
-        'variables': r'$L_f, L_r$ = front/rear distances to articulation joint, $\gamma$ = articulation angle, $\dot{\gamma}$ = articulation rate (currently 0)',
+        'variables': r'$L_f, L_r$ = front/rear distances to articulation joint, $\gamma$ = articulation angle, $\dot{\gamma}$ = articulation rate',
         'reference': "Corke & Ridley, IEEE IO'A 2001",
     },
 }
 
 TRAJECTORY_EQUATIONS = r"""
 **Trajectory Integration (Euler method):**
-$$\dot{x} = v \cos(\theta), \quad \dot{y} = v \sin(\theta), \quad \dot{\theta} = \omega$$
-"""
-
-TRAJECTORY_EQUATIONS_RK4 = r"""
-**Trajectory Integration (RK4 method):**
 $$\dot{x} = v \cos(\theta), \quad \dot{y} = v \sin(\theta), \quad \dot{\theta} = \omega$$
 """

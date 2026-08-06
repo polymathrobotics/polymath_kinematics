@@ -21,17 +21,11 @@ from __future__ import annotations
 import matplotlib.pyplot as plt
 import numpy as np
 
-from .config import (
-    FRONT_OVERHANG,
-    HEADING_ARROW_LENGTH,
-    HEADING_ARROW_WIDTH,
-    LATTICE_CONFIG,
-    REAR_AXLE_POSITION,
-)
+from .config import LATTICE_CONFIG
 from .types import AnyTrajectory, ArticulatedTrajectory, BicycleTrajectory, DifferentialTrajectory
 
 
-def _get_traj_attr(trajectory: AnyTrajectory, key: str) -> float:
+def get_traj_attr(trajectory: AnyTrajectory, key: str) -> float:
     """Get trajectory attribute by key name."""
     return getattr(trajectory, key)
 
@@ -41,64 +35,54 @@ def plot_vehicle_footprint(
     x: float,
     y: float,
     theta: float,
-    length: float = 1.0,
-    width: float = 0.5,
+    body_corners: np.ndarray,
     color: str = 'blue',
     alpha: float = 0.5,
     steering_angle: float | None = None,
+    front_axle_offset_m: float | None = None,
+    track_width_m: float | None = None,
     wheel_length_frac: float = 0.18,
     wheel_width_frac: float = 0.08,
-    body_corners: np.ndarray | None = None,
 ) -> None:
-    """Draw a vehicle footprint (rectangle) at a given pose.
+    """Draw a single-body vehicle footprint at a given pose.
 
-    When ``body_corners`` is provided (an (N, 2) array of world-frame polygon corners, as produced
-    by the C++ projector's ``footprint``), the body outline is drawn directly from it — the single
-    source of truth. Otherwise the body falls back to a rectangle derived from ``length``/``width``
-    with REAR_AXLE_POSITION / FRONT_OVERHANG controlling the axle placement.
+    ``body_corners`` is the projector's ``footprint``: world-frame corners in the projector's
+    order, rear-right, front-right, front-left, rear-left. The heading arrow is derived from it.
 
-    When ``steering_angle`` is provided (radians), two front-wheel indicators
-    are drawn at the front-axle position, rotated by the steering angle in the
-    body frame. Useful for bicycle/Ackermann visualisation; pass ``None`` for
-    models that don't have steered wheels (e.g. differential drive).
+    ``steering_angle`` (radians) draws two front-wheel indicators at ``front_axle_offset_m``
+    ahead of the pose reference, spaced by ``track_width_m``. Pass ``None`` for models without
+    steered wheels (e.g. differential drive).
     """
     cos_theta, sin_theta = np.cos(theta), np.sin(theta)
     rotation_matrix = np.array([[cos_theta, -sin_theta], [sin_theta, cos_theta]])
 
-    if body_corners is not None:
-        body = np.asarray(body_corners, dtype=float)
-        ax.fill(body[:, 0], body[:, 1], color=color, alpha=alpha, edgecolor=color, linewidth=0.5)
-    else:
-        corners_local = np.array([
-            [-length * REAR_AXLE_POSITION, -width / 2],
-            [length * FRONT_OVERHANG, -width / 2],
-            [length * FRONT_OVERHANG, width / 2],
-            [-length * REAR_AXLE_POSITION, width / 2],
-            [-length * REAR_AXLE_POSITION, -width / 2],
-        ])
-        corners_world = (rotation_matrix @ corners_local.T).T + np.array([x, y])
-        ax.fill(corners_world[:, 0], corners_world[:, 1], color=color, alpha=alpha, edgecolor=color, linewidth=0.5)
+    body = np.asarray(body_corners, dtype=float)
+    ax.fill(body[:, 0], body[:, 1], color=color, alpha=alpha, edgecolor=color, linewidth=0.5)
 
-    arrow_length = length * HEADING_ARROW_LENGTH
+    # Heading arrow spans the body: rear-edge midpoint -> front-edge midpoint.
+    rear_mid = (body[0] + body[3]) / 2.0
+    front_mid = (body[1] + body[2]) / 2.0
+    heading_vec = front_mid - rear_mid
+    body_length = float(np.hypot(*heading_vec))
+    body_width = float(np.hypot(*(body[2] - body[1])))
     ax.arrow(
-        x,
-        y,
-        arrow_length * np.cos(theta),
-        arrow_length * np.sin(theta),
-        head_width=width * HEADING_ARROW_WIDTH,
-        head_length=length * 0.1,
+        rear_mid[0],
+        rear_mid[1],
+        heading_vec[0],
+        heading_vec[1],
+        head_width=body_width * 0.3,
+        head_length=body_length * 0.1,
         fc=color,
         ec=color,
         alpha=min(1.0, alpha + 0.3),
+        length_includes_head=True,
     )
 
-    if steering_angle is not None:
-        # Front-wheel indicators: two filled rectangles at the front-axle (FRONT_OVERHANG)
-        # position, offset left/right by half the track width, each rotated by steering_angle
-        # in the body frame, then transformed to world by theta.
-        front_x_local = length * FRONT_OVERHANG
-        wheel_l = length * wheel_length_frac
-        wheel_w = width * wheel_width_frac
+    if steering_angle is not None and front_axle_offset_m is not None and track_width_m is not None:
+        # Front-wheel indicators: rectangles at the front axle, offset left/right by half the
+        # track width, each rotated by steering_angle in the body frame.
+        wheel_l = body_length * wheel_length_frac
+        wheel_w = body_width * wheel_width_frac
         wheel_corners_centered = np.array([
             [-wheel_l / 2.0, -wheel_w / 2.0],
             [+wheel_l / 2.0, -wheel_w / 2.0],
@@ -109,8 +93,8 @@ def plot_vehicle_footprint(
         cos_s, sin_s = np.cos(steering_angle), np.sin(steering_angle)
         wheel_rotation = np.array([[cos_s, -sin_s], [sin_s, cos_s]])
         wheel_corners_steered = (wheel_rotation @ wheel_corners_centered.T).T  # (5, 2)
-        for lateral_offset in (-width / 2.0, +width / 2.0):
-            corners_body = wheel_corners_steered + np.array([front_x_local, lateral_offset])
+        for lateral_offset in (-track_width_m / 2.0, +track_width_m / 2.0):
+            corners_body = wheel_corners_steered + np.array([front_axle_offset_m, lateral_offset])
             corners_in_world = (rotation_matrix @ corners_body.T).T + np.array([x, y])
             ax.fill(
                 corners_in_world[:, 0],
@@ -124,128 +108,43 @@ def plot_vehicle_footprint(
 
 def plot_articulated_footprint(
     ax: plt.Axes,
-    x_front_axle: float,
-    y_front_axle: float,
-    theta: float,
-    articulation_angle: float,
-    front_length: float,
-    rear_length: float,
-    front_width: float,
-    rear_width: float,
+    front_corners: np.ndarray,
+    rear_corners: np.ndarray,
     color: str = 'blue',
     alpha: float = 0.5,
-    front_corners: np.ndarray | None = None,
-    rear_corners: np.ndarray | None = None,
 ) -> None:
-    """Draw an articulated vehicle footprint (two connected rectangles) at a given pose.
+    """Draw an articulated vehicle footprint (two connected rectangles).
 
-    When ``front_corners`` / ``rear_corners`` are provided (each an (N, 2) array of world-frame
-    polygon corners, as produced by the C++ projector's ``front_footprint`` / ``rear_footprint``),
-    the two bodies are drawn directly from them — the single source of truth, with the correct
-    rear-segment anchoring. The joint marker and heading arrow are then derived from the corners.
-    Otherwise the bodies fall back to being computed from the axle lengths and track widths,
-    anchored at the front axle.
-
-    Args:
-        x_front_axle, y_front_axle: Position of the front axle center (fallback path)
-        theta: Heading of the front body (fallback path)
-        articulation_angle: Angle between front and rear bodies (positive = left turn)
-        front_length: Distance from articulation joint to front axle (L_f)
-        rear_length: Distance from articulation joint to rear axle (L_r)
-        front_width, rear_width: Track widths
-        color: Fill color
-        alpha: Transparency
+    Corners come from the projector's ``front_footprint`` / ``rear_footprint``, which already
+    carry the rear-segment anchoring about the joint. Front body is
+    [joint-right, bumper-right, bumper-left, joint-left], so the joint is mid(0, 3); rear body is
+    [bumper-right, joint-right, joint-left, bumper-left]. Joint marker and arrow follow from those.
     """
-    if front_corners is not None or rear_corners is not None:
-        joint_point = None
-        if front_corners is not None:
-            fc = np.asarray(front_corners, dtype=float)
-            ax.fill(fc[:, 0], fc[:, 1], color=color, alpha=alpha, edgecolor=color, linewidth=0.5)
-            # C++ front body corners are [joint, front_bumper, front_bumper, joint]; joint is the
-            # midpoint of the two joint-side corners (indices 0 and 3).
-            joint_point = (fc[0] + fc[3]) / 2.0
-            front_bumper_mid = (fc[1] + fc[2]) / 2.0
-        if rear_corners is not None:
-            rc = np.asarray(rear_corners, dtype=float)
-            ax.fill(rc[:, 0], rc[:, 1], color=color, alpha=alpha * 0.8, edgecolor=color, linewidth=0.5)
-            if joint_point is None:
-                # Rear body corners are [rear_bumper, joint, joint, rear_bumper]; joint = mid(1, 2).
-                joint_point = (rc[1] + rc[2]) / 2.0
-        if joint_point is not None:
-            ax.plot(joint_point[0], joint_point[1], 'o', color=color, markersize=4, alpha=min(1.0, alpha + 0.3))
-            if front_corners is not None:
-                heading_vec = front_bumper_mid - joint_point
-                ax.arrow(
-                    joint_point[0],
-                    joint_point[1],
-                    heading_vec[0],
-                    heading_vec[1],
-                    head_width=front_width * 0.2,
-                    head_length=front_length * 0.08 if front_length else 0.05,
-                    fc=color,
-                    ec=color,
-                    alpha=min(1.0, alpha + 0.3),
-                    length_includes_head=True,
-                )
-        return
+    fc = np.asarray(front_corners, dtype=float)
+    rc = np.asarray(rear_corners, dtype=float)
 
-    # Compute articulation joint position
-    joint_x = x_front_axle - front_length * np.cos(theta)
-    joint_y = y_front_axle - front_length * np.sin(theta)
+    ax.fill(fc[:, 0], fc[:, 1], color=color, alpha=alpha, edgecolor=color, linewidth=0.5)
+    ax.fill(rc[:, 0], rc[:, 1], color=color, alpha=alpha * 0.8, edgecolor=color, linewidth=0.5)
 
-    # Front body corners
-    front_corners_local = np.array([
-        [0, -front_width / 2],
-        [front_length, -front_width / 2],
-        [front_length, front_width / 2],
-        [0, front_width / 2],
-        [0, -front_width / 2],
-    ])
+    joint_point = (fc[0] + fc[3]) / 2.0
+    front_bumper_mid = (fc[1] + fc[2]) / 2.0
+    front_width = float(np.hypot(*(fc[2] - fc[1])))
 
-    cos_front, sin_front = np.cos(theta), np.sin(theta)
-    rotation_front = np.array([[cos_front, -sin_front], [sin_front, cos_front]])
-    front_corners_world = (rotation_front @ front_corners_local.T).T + np.array([joint_x, joint_y])
-    ax.fill(
-        front_corners_world[:, 0], front_corners_world[:, 1], color=color, alpha=alpha, edgecolor=color, linewidth=0.5
-    )
+    ax.plot(joint_point[0], joint_point[1], 'o', color=color, markersize=4, alpha=min(1.0, alpha + 0.3))
 
-    # Rear body
-    rear_theta = theta - articulation_angle
-    rear_corners_local = np.array([
-        [-rear_length, -rear_width / 2],
-        [0, -rear_width / 2],
-        [0, rear_width / 2],
-        [-rear_length, rear_width / 2],
-        [-rear_length, -rear_width / 2],
-    ])
-
-    cos_rear, sin_rear = np.cos(rear_theta), np.sin(rear_theta)
-    rotation_rear = np.array([[cos_rear, -sin_rear], [sin_rear, cos_rear]])
-    rear_corners_world = (rotation_rear @ rear_corners_local.T).T + np.array([joint_x, joint_y])
-    ax.fill(
-        rear_corners_world[:, 0],
-        rear_corners_world[:, 1],
-        color=color,
-        alpha=alpha * 0.8,
-        edgecolor=color,
-        linewidth=0.5,
-    )
-
-    # Articulation joint marker
-    ax.plot(joint_x, joint_y, 'o', color=color, markersize=4, alpha=min(1.0, alpha + 0.3))
-
-    # Heading arrow
-    arrow_length = front_length * 0.4
+    heading_vec = front_bumper_mid - joint_point
+    front_length = float(np.hypot(*heading_vec))
     ax.arrow(
-        x_front_axle,
-        y_front_axle,
-        arrow_length * np.cos(theta),
-        arrow_length * np.sin(theta),
+        joint_point[0],
+        joint_point[1],
+        heading_vec[0],
+        heading_vec[1],
         head_width=front_width * 0.2,
-        head_length=front_length * 0.08,
+        head_length=front_length * 0.08 if front_length else 0.05,
         fc=color,
         ec=color,
         alpha=min(1.0, alpha + 0.3),
+        length_includes_head=True,
     )
 
 
@@ -276,8 +175,8 @@ def select_symmetric_trajectories(
     angle_key = config.angle_key
     vel_key = config.vel_key
 
-    all_angles = sorted(set(_get_traj_attr(trajectory, angle_key) for trajectory in trajectories))
-    all_velocities = sorted(set(_get_traj_attr(trajectory, vel_key) for trajectory in trajectories))
+    all_angles = sorted(set(get_traj_attr(trajectory, angle_key) for trajectory in trajectories))
+    all_velocities = sorted(set(get_traj_attr(trajectory, vel_key) for trajectory in trajectories))
 
     # Select symmetric angles
     if len(all_angles) <= num_angles:
@@ -296,11 +195,11 @@ def select_symmetric_trajectories(
     selected = [
         trajectory
         for trajectory in trajectories
-        if any(abs(_get_traj_attr(trajectory, angle_key) - angle) < 1e-6 for angle in selected_angles)
-        and any(abs(_get_traj_attr(trajectory, vel_key) - velocity) < 1e-6 for velocity in selected_velocities)
+        if any(abs(get_traj_attr(trajectory, angle_key) - angle) < 1e-6 for angle in selected_angles)
+        and any(abs(get_traj_attr(trajectory, vel_key) - velocity) < 1e-6 for velocity in selected_velocities)
     ]
 
-    selected.sort(key=lambda trajectory: _get_traj_attr(trajectory, angle_key))
+    selected.sort(key=lambda trajectory: get_traj_attr(trajectory, angle_key))
     return selected
 
 
@@ -326,10 +225,14 @@ def plot_trajectory_with_footprints(
 ) -> plt.Figure:
     """Plot selected trajectories with vehicle footprints at intervals.
 
+    A trajectory with no footprint series (projector given no body dims) still has its path
+    drawn; only the overlay is skipped.
+
     Args:
         trajectories: List of trajectory dataclasses (already filtered/selected)
         model_type: "Differential Drive", "Bicycle", or "Articulated"
-        model_params: Dict with model dimensions
+        model_params: Bicycle only — ``wheelbase`` and ``track_width`` for the steered-wheel
+            indicators. Unused for the other models.
         num_footprints: Number of footprints per trajectory
 
     Returns:
@@ -356,74 +259,46 @@ def plot_trajectory_with_footprints(
 
             if model_type == 'Articulated':
                 articulated: ArticulatedTrajectory = trajectory  # type: ignore[assignment]
-                if articulated.articulation_angle_series is not None:
-                    sample_articulation_angle = float(articulated.articulation_angle_series[footprint_index])
-                else:
-                    sample_articulation_angle = articulated.articulation_angle
-                # Prefer the projector-computed footprints (single source of truth); fall back to
-                # axle-length geometry when they are unavailable.
-                front_corners = (
-                    articulated.front_footprint_series[footprint_index]
-                    if articulated.front_footprint_series is not None
-                    else None
-                )
-                rear_corners = (
-                    articulated.rear_footprint_series[footprint_index]
-                    if articulated.rear_footprint_series is not None
-                    else None
-                )
+                if articulated.front_footprint_series is None or articulated.rear_footprint_series is None:
+                    continue
                 plot_articulated_footprint(
                     ax,
-                    trajectory.x[footprint_index],
-                    trajectory.y[footprint_index],
-                    trajectory.theta[footprint_index],
-                    articulation_angle=sample_articulation_angle,
-                    front_length=model_params['front_length'],
-                    rear_length=model_params['rear_length'],
-                    front_width=model_params['front_width'],
-                    rear_width=model_params['rear_width'],
+                    articulated.front_footprint_series[footprint_index],
+                    articulated.rear_footprint_series[footprint_index],
                     color=color,
                     alpha=footprint_alpha,
-                    front_corners=front_corners,
-                    rear_corners=rear_corners,
                 )
             elif model_type == 'Bicycle':
                 bicycle: BicycleTrajectory = trajectory  # type: ignore[assignment]
+                if bicycle.footprint_series is None:
+                    continue
                 if bicycle.steering_angle_series is not None:
                     sample_steering_angle = float(bicycle.steering_angle_series[footprint_index])
                 else:
                     sample_steering_angle = bicycle.steering_angle
-                body_corners = (
-                    bicycle.footprint_series[footprint_index] if bicycle.footprint_series is not None else None
-                )
                 plot_vehicle_footprint(
                     ax,
                     trajectory.x[footprint_index],
                     trajectory.y[footprint_index],
                     trajectory.theta[footprint_index],
-                    length=model_params['length'],
-                    width=model_params['width'],
+                    bicycle.footprint_series[footprint_index],
                     color=color,
                     alpha=footprint_alpha,
                     steering_angle=sample_steering_angle,
-                    body_corners=body_corners,
+                    front_axle_offset_m=model_params['wheelbase'],
+                    track_width_m=model_params['track_width'],
                 )
             else:  # Differential Drive — no steered wheels.
-                body_corners = (
-                    trajectory.footprint_series[footprint_index]
-                    if trajectory.footprint_series is not None
-                    else None
-                )
+                if trajectory.footprint_series is None:
+                    continue
                 plot_vehicle_footprint(
                     ax,
                     trajectory.x[footprint_index],
                     trajectory.y[footprint_index],
                     trajectory.theta[footprint_index],
-                    length=model_params['length'],
-                    width=model_params['width'],
+                    trajectory.footprint_series[footprint_index],
                     color=color,
                     alpha=footprint_alpha,
-                    body_corners=body_corners,
                 )
 
     ax.set_xlabel('X (m)')
@@ -473,7 +348,7 @@ def plot_lattice(
     if num_columns == 1:
         axes = [axes]
 
-    color_values = [_get_traj_attr(trajectory, config.color_key) for trajectory in trajectories]
+    color_values = [get_traj_attr(trajectory, config.color_key) for trajectory in trajectories]
     if config.color_is_angle:
         color_values_display = [np.degrees(value) for value in color_values]
     else:
@@ -494,8 +369,8 @@ def plot_lattice(
         ax.axvline(x=0, color='k', linewidth=0.5)
 
         for trajectory in trajectories:
-            if abs(_get_traj_attr(trajectory, config.group_key) - group_value) < 0.001:
-                raw_color_value = _get_traj_attr(trajectory, config.color_key)
+            if abs(get_traj_attr(trajectory, config.group_key) - group_value) < 0.001:
+                raw_color_value = get_traj_attr(trajectory, config.color_key)
                 color_value = np.degrees(raw_color_value) if config.color_is_angle else raw_color_value
                 color = colormap(normalizer(color_value))
                 ax.plot(trajectory.x, trajectory.y, color=color, linewidth=1.5, alpha=0.8)
@@ -558,7 +433,7 @@ def plot_analysis(
         ax_right.set_xlabel('|Articulation Angle| (deg)')
         ax_right.set_ylabel('Turning Radius (m)')
         ax_right.set_title('Turning Radius vs Articulation')
-        ax_right.legend()
+        # Single unlabeled series — no legend.
         ax_right.grid(True, alpha=0.3)
         ax_right.set_ylim(bottom=0)
 
@@ -596,7 +471,7 @@ def plot_analysis(
         ax_right.set_xlabel('|Steering Angle| (deg)')
         ax_right.set_ylabel('Turning Radius (m)')
         ax_right.set_title('Turning Radius vs Steering')
-        ax_right.legend()
+        # Single unlabeled series — no legend.
         ax_right.grid(True, alpha=0.3)
         ax_right.set_ylim(bottom=0)
 
