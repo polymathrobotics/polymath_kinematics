@@ -133,6 +133,7 @@ from polymath_kinematics import (
     Pose2D,
     Point2D,
     rectangle_footprint,
+    transform_footprint,
 )
 ```
 
@@ -208,7 +209,9 @@ Every projector optionally computes a per-sample vehicle footprint. Footprints a
 polygons** given in the body frame, and they live on the projector rather than the model — the
 kinematic models stay dimension-free. A polygon is counter-clockwise and not closed; an empty
 polygon (the default) means "unset", so the footprint comes back empty and projection proceeds
-normally. `rectangle_footprint(front_m, rear_m, width_m)` builds the boxy common case.
+normally. `rectangle_footprint(front_m, rear_m, width_m)` builds the boxy common case, and
+`transform_footprint(polygon, pose)` maps a body-frame polygon into another frame if you need to
+transform one yourself.
 
 For the bicycle and articulated models, poses and the body-frame footprint are both measured from
 an axle you choose with `AxleReference.FRONT` or `AxleReference.REAR`. A differential drive has one
@@ -256,7 +259,7 @@ result = projector.step(
     linear_velocity_m_s=1.0,
 )
 print(result.pose.x, result.steering_angle_rad)
-print([(p.x, p.y) for p in result.footprint])  # world-frame body polygon
+print([(p.x, p.y) for p in result.footprint])  # world-frame body polygon; empty if no footprint was given
 
 # Full trajectory
 trajectory = projector.project(
@@ -470,6 +473,6 @@ auto diff_trajectory = diff_projector.project(
 | `ArticulatedProjector` | `(ArticulatedModel, min_articulation, max_articulation, [axle_reference, front_footprint, rear_footprint])` | `step(dt, pose, current, target, rate, v)`, `project(horizon, dt, pose, initial, target, rate, v)` |
 | `DifferentialDriveProjector` | `(DifferentialDriveModel, min_v, max_v, min_omega, max_omega, [footprint])` | `step(dt, pose, current_v, current_omega, target_v, target_omega, accel, angular_accel)`, `project(horizon, dt, pose, initial_v, initial_omega, target_v, target_omega, accel, angular_accel)` |
 
-All three clamp the target to its `[min, max]` bounds before ramping, then advance toward the clamped target at the given rate or acceleration (never overshooting), and integrate pose with Euler using the heading at the start of each step. `project()` returns `ceil(horizon / dt) + 1` samples, with the initial state as element 0.
+All three clamp the target to its `[min, max]` bounds before ramping, then advance toward the clamped target at the given rate or acceleration (never overshooting), and integrate pose with Euler. Each step advances position using the heading `θ` at the *start* of the step, while the angular rate `ω` comes from the *post-ramp* steering/articulation angle — the model headers phrase this as integrating with the "post-ramp angle", referring to that rate, not the heading used for position. `project()` returns `ceil(horizon / dt) + 1` samples, with the initial state as element 0; it returns an empty sequence for degenerate inputs (`dt_s <= 0` or `horizon_s < 0`).
 
 `BicycleProjector` and `ArticulatedProjector` ramp an angle; `DifferentialDriveProjector` ramps the body command `(v, ω)` under separate linear and angular acceleration limits, since a differential drive has no steered joint.
