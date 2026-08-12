@@ -27,11 +27,11 @@ jobs:
       ROS_DISTRO: ${{ matrix.ros }}
       PIP_BREAK_SYSTEM_PACKAGES: 1
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: ros-tooling/action-ros-ci@v0.4
         with:
           target-ros2-distro: ${{ matrix.ros }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: colcon-logs-${{ matrix.ros }}
           path: ros_ws/log
@@ -41,8 +41,8 @@ jobs:
     runs-on: ubuntu-latest
     name: Wheel and explorer
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v7
       - name: Install package with dev extra
         run: uv venv && uv pip install -e ".[dev]"
       - name: Python tests
@@ -64,7 +64,7 @@ jobs:
     runs-on: ubuntu-latest
     name: Standalone CMake + ctest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install build dependencies
         run: |
           sudo apt-get update
