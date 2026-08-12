@@ -16,11 +16,27 @@
 
 ### Footprints
 
-- `Pose2D`, `Point2D`, and `Footprint` (a 4-corner, counter-clockwise, unclosed world-frame
-  polygon) in a shared `pose2d.hpp`, along with `normalizeAngle`.
-- Each projector optionally computes a per-sample body footprint from its own dimensions; the
-  kinematic models stay dimension-free. A body width of 0 or less emits an empty footprint
-  rather than throwing. The articulated projector emits separate front and rear polygons.
+- `Pose2D`, `Point2D`, and `Footprint` (a counter-clockwise, unclosed polygon of any vertex count)
+  in a shared `pose2d.hpp`, along with `normalizeAngle`, `transformFootprint`,
+  `offsetAlongHeading`, and `rectangleFootprint` for the boxy common case.
+- Each projector optionally takes an **arbitrary body-frame polygon** and emits it transformed into
+  the world frame per sample; the kinematic models stay dimension-free. An empty polygon means
+  "unset" and yields an empty footprint rather than throwing. The articulated projector takes one
+  polygon per body.
+
+### Axle reference
+
+- `AxleReference::FRONT` / `REAR` selects the axle that `BicycleProjector` and
+  `ArticulatedProjector` measure poses and footprints from. Motion is still integrated where each
+  model is naturally defined (the rear axle); the reference conversion is applied on input and
+  output, so no integration accuracy is traded for the choice.
+- For the articulated model, `theta` follows the referenced axle's body — $\theta_r$ for REAR,
+  $\theta_f = \theta_r + \gamma$ for FRONT — and each body's polygon is anchored at **its own**
+  axle, the only anchoring that stays rigid as the joint articulates.
+- `ArticulatedProjectedState` gained `joint_pose`, so the articulation joint (`base_link`) is
+  reported on every sample whichever axle is referenced.
+- A differential drive has one axle, so `DifferentialDriveProjector` takes no reference; its
+  polygon is measured from the body centre.
 
 ### Kinematics
 
@@ -43,8 +59,8 @@
   relationships, and vehicle footprints across all three models. Every trajectory it draws
   comes from the C++ projectors, so the explorer and production code share one
   forward-simulation path.
-- Geometry sliders (including body overhangs), single-projected-trajectory ramp controls, and
-  CSV / JSON / PNG / SVG / PDF download.
+- Geometry sliders (including body overhangs), a front/rear axle reference selector,
+  single-projected-trajectory ramp controls, and CSV / JSON / PNG / SVG / PDF download.
 
 ### Removed
 

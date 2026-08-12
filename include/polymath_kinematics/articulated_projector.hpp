@@ -15,71 +15,68 @@
 #ifndef POLYMATH_KINEMATICS__ARTICULATED_PROJECTOR_HPP__
 #define POLYMATH_KINEMATICS__ARTICULATED_PROJECTOR_HPP__
 
+#include <utility>
 #include <vector>
 
 #include "polymath_kinematics/articulated_model.hpp"
 #include "polymath_kinematics/pose2d.hpp"
 
-// TODO(naming): when this projector is in wide use, consider renaming the underlying
-// ArticulatedModel methods for clarity:
-//   - bodyVelocityToVehicleState     -> inverseKinematics
-//   - articulationToAxleVelocities   -> forwardKinematics
-// And dropping the _m / _rad / _rad_s unit suffixes from struct fields (units in docs).
-
 namespace polymath::kinematics
 {
 
-/// @brief One sample of an articulated-model projection. Pose (base_link) is the articulation
-/// joint; pose.theta is the rear-body heading. Motion is integrated from the rear axle internally.
+/// @brief One sample of an articulated-model projection. `pose` sits at the projector's reference
+/// axle, with theta the heading of the body that axle belongs to. Motion is integrated at the rear
+/// axle internally.
 struct ArticulatedProjectedState
 {
   double time_s;  ///< Elapsed time from the start of the projection
-  Pose2D pose;  ///< Articulation-joint (base_link) pose at this sample; theta = rear-body heading
+  Pose2D pose;  ///< Reference-axle pose; theta = heading of that axle's body
   double articulation_angle_rad;  ///< Post-ramp articulation angle (gamma) in radians
   double linear_velocity_m_s;  ///< Commanded linear velocity in m/s
   double angular_velocity_rad_s;  ///< Rear-axle turning rate used for theta integration
   ArticulatedVehicleState vehicle_state;  ///< Full kinematic snapshot (wheel speeds + turning radii)
-  Footprint front_footprint;  ///< World-frame front-body polygon; empty if no footprint dims set
-  Footprint rear_footprint;  ///< World-frame rear-body polygon; empty if no footprint dims set
+  Pose2D joint_pose;  ///< Articulation-joint (base_link) pose; theta = rear-body heading
+  Footprint front_footprint;  ///< World-frame front-body polygon; empty if none was set
+  Footprint rear_footprint;  ///< World-frame rear-body polygon; empty if none was set
 };
 
 /// @brief Forward-projection wrapper around ArticulatedModel. Ramps articulation angle (gamma)
 /// toward a target at a bounded rate (gamma-dot), clamping the target to [min, max] first.
-/// Motion is integrated with Euler at the rear axle, but the reported pose (base_link) is the
-/// articulation joint (rear axle + articulation_to_rear_axle along the rear-body heading).
+///
+/// Poses are measured at the axle named by `axle_reference`, with theta the heading of the body
+/// that axle belongs to (rear-body heading for REAR, front-body heading = theta_rear + gamma for
+/// FRONT). Motion is always integrated at the rear axle; the reference conversion is applied on
+/// input and output. The articulation-joint pose is reported alongside on every sample.
 class ArticulatedProjector
 {
 public:
-  /// @brief Construct a projector with articulation-angle limits and (optionally) footprint dims.
+  /// @brief Construct a projector with articulation-angle limits and (optionally) body footprints.
   ///
-  /// Footprint dimensions describe the two vehicle bodies relative to the articulation joint and
-  /// are owned by the projector (the kinematic model stays dimension-free). Each body is a
-  /// rectangle: the front body extends `front_joint_to_bumper_m` ahead of the joint along the
-  /// front-body heading; the rear body extends `rear_joint_to_bumper_m` behind the joint along
-  /// the rear-body heading. A body width <= 0 means "unset/invalid": that body's footprint is
-  /// emitted empty and projection proceeds normally (never throws).
+  /// Each body carries its own arbitrary polygon, expressed in the frame of **its own** axle: the
+  /// front polygon about the front axle with +x along the front-body heading, the rear polygon
+  /// about the rear axle with +x along the rear-body heading. This is the only anchoring that stays
+  /// rigid as the joint articulates. Footprints are owned by the projector, so the kinematic model
+  /// stays dimension-free. An empty polygon means "unset": that body's footprint is emitted empty
+  /// and projection proceeds normally (never throws). Use `rectangleFootprint()` for boxy bodies.
   /// @param model Articulated kinematics model (stored by value)
   /// @param min_articulation_angle_rad Minimum allowed articulation angle (typically negative)
   /// @param max_articulation_angle_rad Maximum allowed articulation angle (typically positive)
-  /// @param front_joint_to_bumper_m Front-body length from joint to front bumper (m)
-  /// @param front_body_width_m Front-body width (m); <= 0 disables the front footprint
-  /// @param rear_joint_to_bumper_m Rear-body length from joint to rear bumper (m)
-  /// @param rear_body_width_m Rear-body width (m); <= 0 disables the rear footprint
+  /// @param axle_reference Axle that reported poses are measured from
+  /// @param front_footprint Front-body polygon in the front-axle frame
+  /// @param rear_footprint Rear-body polygon in the rear-axle frame
   ArticulatedProjector(
     ArticulatedModel model,
     double min_articulation_angle_rad,
     double max_articulation_angle_rad,
-    double front_joint_to_bumper_m = 0.0,
-    double front_body_width_m = 0.0,
-    double rear_joint_to_bumper_m = 0.0,
-    double rear_body_width_m = 0.0)
+    AxleReference axle_reference = AxleReference::REAR,
+    Footprint front_footprint = {},
+    Footprint rear_footprint = {})
   : model_(model)
   , min_articulation_angle_rad_(min_articulation_angle_rad)
   , max_articulation_angle_rad_(max_articulation_angle_rad)
-  , front_joint_to_bumper_m_(front_joint_to_bumper_m)
-  , front_body_width_m_(front_body_width_m)
-  , rear_joint_to_bumper_m_(rear_joint_to_bumper_m)
-  , rear_body_width_m_(rear_body_width_m)
+  , axle_reference_(axle_reference)
+  , front_footprint_(std::move(front_footprint))
+  , rear_footprint_(std::move(rear_footprint))
   {}
 
   ~ArticulatedProjector() = default;
@@ -89,7 +86,7 @@ public:
   /// |articulation_rate_rad_s| per second, never overshooting. Pose is integrated with Euler
   /// using the post-ramp angle.
   /// @param dt_s Step duration in seconds (must be > 0)
-  /// @param current_pose Articulation-joint (base_link) pose at the start of the step
+  /// @param current_pose Reference-axle pose at the start of the step
   /// @param current_articulation_angle_rad Articulation angle at the start of the step
   /// @param target_articulation_angle_rad Desired articulation angle (clamped to [min, max] internally)
   /// @param articulation_rate_rad_s Magnitude of the ramp rate in rad/s (sign is ignored)
@@ -131,41 +128,41 @@ public:
     return max_articulation_angle_rad_;
   }
 
-  double get_front_joint_to_bumper_m() const
+  AxleReference get_axle_reference() const
   {
-    return front_joint_to_bumper_m_;
+    return axle_reference_;
   }
 
-  double get_front_body_width_m() const
+  const Footprint & get_front_footprint() const
   {
-    return front_body_width_m_;
+    return front_footprint_;
   }
 
-  double get_rear_joint_to_bumper_m() const
+  const Footprint & get_rear_footprint() const
   {
-    return rear_joint_to_bumper_m_;
-  }
-
-  double get_rear_body_width_m() const
-  {
-    return rear_body_width_m_;
+    return rear_footprint_;
   }
 
 private:
-  /// @brief Fill state.front_footprint / state.rear_footprint (world frame) from the rear-segment
-  /// pose and articulation angle already populated on `state`. A body with width <= 0 yields an
-  /// empty footprint.
-  /// TODO: (zeerek) surface footprint-invalid to the user (e.g. a validity flag / status enum on
-  /// the projected state) instead of silently emitting an empty Footprint.
-  void fillFootprints(ArticulatedProjectedState & state) const;
+  /// @brief Convert a pose at the reference axle to the rear axle, where motion is integrated.
+  Pose2D toRearAxle(const Pose2D & reference_pose, double articulation_angle_rad) const;
+
+  /// @brief Rear-axle pose -> articulation-joint pose (theta unchanged, still the rear heading).
+  Pose2D jointFromRearAxle(const Pose2D & rear_axle_pose) const;
+
+  /// @brief Rear-axle pose -> front-axle pose, whose theta is the front-body heading.
+  Pose2D frontAxleFromRearAxle(const Pose2D & rear_axle_pose, double articulation_angle_rad) const;
+
+  /// @brief Populate pose / joint_pose / both footprints from a rear-axle pose and gamma.
+  void fillPosesAndFootprints(
+    ArticulatedProjectedState & state, const Pose2D & rear_axle_pose, double articulation_angle_rad) const;
 
   ArticulatedModel model_;
   double min_articulation_angle_rad_;
   double max_articulation_angle_rad_;
-  double front_joint_to_bumper_m_;
-  double front_body_width_m_;
-  double rear_joint_to_bumper_m_;
-  double rear_body_width_m_;
+  AxleReference axle_reference_;
+  Footprint front_footprint_;
+  Footprint rear_footprint_;
 };
 
 }  // namespace polymath::kinematics

@@ -94,9 +94,13 @@ $$\omega_{\text{fr}} = \frac{\omega \cdot \operatorname{copysign}\!\left(\sqrt{(
 `BicycleProjector` wraps this model to roll a pose forward in time under a rate-limited steering
 actuator.
 
-**Pose reference.** The pose is the **rear axle** centre, the standard bicycle-model reference —
-it is the point that travels along the body velocity vector, so no frame conversion is needed
-during integration.
+**Pose reference.** Poses are measured at whichever axle the caller selects
+(`AxleReference::FRONT` or `REAR`). Motion is always integrated at the **rear axle**, the classic
+bicycle reference and the point that travels along the body velocity vector. Because the chassis is
+one rigid body, both axles share the heading $\theta$, so a FRONT reference is a pure longitudinal
+offset applied on input and output:
+
+$$\mathbf{p}^{\text{front}} = \mathbf{p}^{\text{rear}} + L\begin{bmatrix}\cos\theta\\\sin\theta\end{bmatrix}$$
 
 **Per step**, given $\Delta t$, the current angle $\delta_k$, a target $\delta^\*$, a rate limit
 $\dot{\delta}_{\max}$, and a commanded $v$:
@@ -121,17 +125,22 @@ element 0 so plots have a clean $t = 0$ anchor.
 ### Footprints
 
 The projector optionally emits a body polygon per sample, keeping the kinematic model itself
-dimension-free. The body is the rectangle spanning
-$[-\text{rear\_overhang},\; +\text{front\_overhang}]$ along the heading by
-$\text{body\_width}$ across — **both distances measured from the pose reference (the rear
-axle)**. Since the front axle sits a full wheelbase ahead of that reference, a physical vehicle
-has
-$$\text{front\_overhang}_{\text{param}} = L + \text{(overhang past the front axle)}$$
-Passing a value smaller than $L$ would place the front bumper *behind* the front axle.
+dimension-free. The footprint is an **arbitrary polygon** supplied in the body frame of the selected
+axle: $+x$ along the chassis heading, $+y$ to the left, origin at that axle. Each sample carries the
+polygon transformed into the world frame by that sample's pose.
 
-Each polygon is 4 corners, counter-clockwise, **not** closed (the first corner is not repeated),
-ordered [rear-right, front-right, front-left, rear-left]. A body width of $0$ or less means
-"unset": the footprint comes back empty and projection proceeds normally rather than throwing.
+Because the reference axle sets the polygon's origin, the same physical body is described
+differently depending on the choice. For a vehicle with $f$ of overhang past the front axle and $r$
+of tail behind the rear axle:
+
+| Reference | Forward extent | Rearward extent |
+|---|---|---|
+| `REAR` | $L + f$ | $r$ |
+| `FRONT` | $f$ | $L + r$ |
+
+`rectangleFootprint(front_m, rear_m, width_m)` builds the boxy case, ordered counter-clockwise and
+open: rear-right, front-right, front-left, rear-left. An empty polygon means "unset": the footprint
+comes back empty and projection proceeds normally rather than throwing.
 
 ## Future Work
 Add diagrams to the readme for visualization

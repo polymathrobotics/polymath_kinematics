@@ -26,6 +26,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import streamlit as st
 
+from polymath_kinematics import AxleReference, rectangle_footprint
 from polymath_kinematics.explorer import (
     KINEMATIC_EQUATIONS,
     LATTICE_CONFIG,
@@ -56,6 +57,22 @@ from polymath_kinematics.explorer.config import (
     DEFAULT_DIFFERENTIAL_REAR_OVERHANG_M,
 )
 
+AXLE_REFERENCES = {'Rear axle': AxleReference.REAR, 'Front axle': AxleReference.FRONT}
+
+
+def _bicycle_footprint(
+    wheelbase: float, track_width: float, front_overhang: float, rear_overhang: float, axle_reference: str
+):
+    """Rectangle for a boxy bicycle body, expressed in the selected axle's frame.
+
+    The sliders describe the body relative to the axles it sits between: `front_overhang` ahead of
+    the FRONT axle, `rear_overhang` behind the REAR axle. Whichever axle is the reference, the body
+    lands in the same physical place.
+    """
+    if AXLE_REFERENCES[axle_reference] == AxleReference.FRONT:
+        return rectangle_footprint(front_overhang, wheelbase + rear_overhang, track_width)
+    return rectangle_footprint(wheelbase + front_overhang, rear_overhang, track_width)
+
 
 @st.cache_data
 def _cached_lattice_differential(
@@ -76,9 +93,7 @@ def _cached_lattice_differential(
         duration,
         time_step,
         # Pose reference is the body centre, so the overhangs are the bumper distances directly.
-        front_overhang_m=front_overhang,
-        rear_overhang_m=rear_overhang,
-        body_width_m=track_width,
+        footprint=rectangle_footprint(front_overhang, rear_overhang, track_width),
     )
 
 
@@ -93,6 +108,7 @@ def _cached_lattice_bicycle(
     time_step: float,
     front_overhang: float,
     rear_overhang: float,
+    axle_reference: str,
 ) -> list[BicycleTrajectory]:
     return generate_lattice_bicycle(
         wheelbase,
@@ -102,10 +118,8 @@ def _cached_lattice_bicycle(
         steering_angles,
         duration,
         time_step,
-        # Pose reference is the rear axle; front bumper = wheelbase + overhang.
-        front_overhang_m=wheelbase + front_overhang,
-        rear_overhang_m=rear_overhang,
-        body_width_m=track_width,
+        axle_reference=AXLE_REFERENCES[axle_reference],
+        footprint=_bicycle_footprint(wheelbase, track_width, front_overhang, rear_overhang, axle_reference),
     )
 
 
@@ -123,6 +137,7 @@ def _cached_lattice_articulated(
     time_step: float,
     front_overhang: float,
     rear_overhang: float,
+    axle_reference: str,
 ) -> list[ArticulatedTrajectory]:
     return generate_lattice_articulated(
         articulation_to_front,
@@ -135,11 +150,9 @@ def _cached_lattice_articulated(
         articulation_angles,
         duration,
         time_step,
-        # base_link is the articulation joint; joint-to-bumper = joint-to-axle + overhang.
-        front_joint_to_bumper_m=articulation_to_front + front_overhang,
-        front_body_width_m=front_track,
-        rear_joint_to_bumper_m=articulation_to_rear + rear_overhang,
-        rear_body_width_m=rear_track,
+        axle_reference=AXLE_REFERENCES[axle_reference],
+        front_footprint=rectangle_footprint(front_overhang, articulation_to_front, front_track),
+        rear_footprint=rectangle_footprint(articulation_to_rear, rear_overhang, rear_track),
     )
 
 
@@ -156,6 +169,7 @@ def _cached_single_bicycle(
     time_step: float,
     front_overhang: float,
     rear_overhang: float,
+    axle_reference: str,
 ) -> BicycleTrajectory:
     return single_bicycle_trajectory(
         wheelbase,
@@ -167,10 +181,8 @@ def _cached_single_bicycle(
         drive_velocity=drive_velocity,
         duration=duration,
         time_step=time_step,
-        # Pose reference is the rear axle; see _cached_lattice_bicycle.
-        front_overhang_m=wheelbase + front_overhang,
-        rear_overhang_m=rear_overhang,
-        body_width_m=track_width,
+        axle_reference=AXLE_REFERENCES[axle_reference],
+        footprint=_bicycle_footprint(wheelbase, track_width, front_overhang, rear_overhang, axle_reference),
     )
 
 
@@ -190,6 +202,7 @@ def _cached_single_articulated(
     time_step: float,
     front_overhang: float,
     rear_overhang: float,
+    axle_reference: str,
 ) -> ArticulatedTrajectory:
     return single_articulated_trajectory(
         articulation_to_front,
@@ -204,11 +217,11 @@ def _cached_single_articulated(
         drive_velocity=drive_velocity,
         duration=duration,
         time_step=time_step,
-        # base_link is the articulation joint; joint-to-bumper = joint-to-axle + overhang.
-        front_joint_to_bumper_m=articulation_to_front + front_overhang,
-        front_body_width_m=front_track,
-        rear_joint_to_bumper_m=articulation_to_rear + rear_overhang,
-        rear_body_width_m=rear_track,
+        axle_reference=AXLE_REFERENCES[axle_reference],
+        # Each body polygon is measured from its own axle: the joint is L_f behind the front axle
+        # and L_r ahead of the rear axle.
+        front_footprint=rectangle_footprint(front_overhang, articulation_to_front, front_track),
+        rear_footprint=rectangle_footprint(articulation_to_rear, rear_overhang, rear_track),
     )
 
 
@@ -239,9 +252,7 @@ def _cached_single_differential(
         duration=duration,
         time_step=time_step,
         # Pose reference is the body centre; see _cached_lattice_differential.
-        front_overhang_m=front_overhang,
-        rear_overhang_m=rear_overhang,
-        body_width_m=track_width,
+        footprint=rectangle_footprint(front_overhang, rear_overhang, track_width),
     )
 
 
@@ -277,6 +288,7 @@ def get_config_dict(model_type: str) -> dict:
             'wheel_radius': st.session_state.bike_wheel_radius,
             'front_overhang': st.session_state.bike_front_overhang,
             'rear_overhang': st.session_state.bike_rear_overhang,
+            'axle_reference': st.session_state.bike_axle_reference,
         }
         config['control_inputs'] = {
             'v_min': st.session_state.bike_v_min,
@@ -295,6 +307,7 @@ def get_config_dict(model_type: str) -> dict:
             'rear_wheel_radius': st.session_state.art_rear_wheel_r,
             'front_overhang': st.session_state.art_front_overhang,
             'rear_overhang': st.session_state.art_rear_overhang,
+            'axle_reference': st.session_state.art_axle_reference,
         }
         config['control_inputs'] = {
             'v_min': st.session_state.art_v_min,
@@ -324,6 +337,7 @@ def init_session_state():
         'bike_wheelbase': 2.5,
         'bike_track_width': 1.5,
         'bike_wheel_radius': 0.3,
+        'bike_axle_reference': 'Rear axle',
         'bike_front_overhang': DEFAULT_BICYCLE_FRONT_OVERHANG_M,
         'bike_rear_overhang': DEFAULT_BICYCLE_REAR_OVERHANG_M,
         'bike_v_min': 1.0,
@@ -336,6 +350,7 @@ def init_session_state():
         'art_to_rear': 1.2,
         'art_front_track': 1.8,
         'art_rear_track': 1.6,
+        'art_axle_reference': 'Rear axle',
         'art_front_overhang': DEFAULT_ARTICULATED_FRONT_OVERHANG_M,
         'art_rear_overhang': DEFAULT_ARTICULATED_REAR_OVERHANG_M,
         'art_front_wheel_r': 0.4,
@@ -406,6 +421,12 @@ elif model_type == 'Bicycle':
     st.session_state.bike_wheel_radius = st.sidebar.slider(
         'Wheel Radius (m)', 0.1, 0.6, st.session_state.bike_wheel_radius, 0.05
     )
+    st.session_state.bike_axle_reference = st.sidebar.selectbox(
+        'Pose / Footprint Reference',
+        list(AXLE_REFERENCES),
+        index=list(AXLE_REFERENCES).index(st.session_state.bike_axle_reference),
+        help='Axle that trajectory poses and the footprint polygon are measured from.',
+    )
     st.session_state.bike_front_overhang = st.sidebar.slider(
         'Front Overhang (m)',
         0.0,
@@ -443,6 +464,12 @@ elif model_type == 'Articulated':
     )
     st.session_state.art_rear_track = st.sidebar.slider(
         'Rear Track Width (m)', 1.0, 3.0, st.session_state.art_rear_track, 0.1
+    )
+    st.session_state.art_axle_reference = st.sidebar.selectbox(
+        'Pose Reference',
+        list(AXLE_REFERENCES),
+        index=list(AXLE_REFERENCES).index(st.session_state.art_axle_reference),
+        help='Axle that trajectory poses are measured from. Each body footprint is always measured from its own axle.',
     )
     st.session_state.art_front_overhang = st.sidebar.slider(
         'Front Overhang (m)',
@@ -571,6 +598,7 @@ elif model_type == 'Bicycle':
         time_step=st.session_state.sim_dt,
         front_overhang=st.session_state.bike_front_overhang,
         rear_overhang=st.session_state.bike_rear_overhang,
+        axle_reference=st.session_state.bike_axle_reference,
     )
     group_values = list(drive_velocities)
 
@@ -613,6 +641,7 @@ else:  # Articulated
         time_step=st.session_state.sim_dt,
         front_overhang=st.session_state.art_front_overhang,
         rear_overhang=st.session_state.art_rear_overhang,
+        axle_reference=st.session_state.art_axle_reference,
     )
     group_values = list(drive_velocities)
 
@@ -654,8 +683,12 @@ if model_type == 'Differential Drive':
     body_length = st.session_state.diff_front_overhang + st.session_state.diff_rear_overhang
     st.caption(f'Vehicle dimensions: {body_length:.2f}m x {st.session_state.diff_track_width:.2f}m')
 elif model_type == 'Bicycle':
+    # front_axle_offset is measured from the pose reference, so it collapses to 0 when the pose
+    # already sits at the front axle.
     model_params = {
-        'wheelbase': st.session_state.bike_wheelbase,
+        'wheelbase': 0.0
+        if AXLE_REFERENCES[st.session_state.bike_axle_reference] == AxleReference.FRONT
+        else st.session_state.bike_wheelbase,
         'track_width': st.session_state.bike_track_width,
     }
     vel_label = 'Drive Velocity (m/s)'
@@ -780,6 +813,7 @@ if model_type == 'Bicycle':
         time_step=st.session_state.sim_dt,
         front_overhang=st.session_state.bike_front_overhang,
         rear_overhang=st.session_state.bike_rear_overhang,
+        axle_reference=st.session_state.bike_axle_reference,
     )
     _render_single_trajectory(single_traj)
     st.caption(
@@ -833,6 +867,7 @@ elif model_type == 'Articulated':
         time_step=st.session_state.sim_dt,
         front_overhang=st.session_state.art_front_overhang,
         rear_overhang=st.session_state.art_rear_overhang,
+        axle_reference=st.session_state.art_axle_reference,
     )
     _render_single_trajectory(single_traj)
     st.caption(

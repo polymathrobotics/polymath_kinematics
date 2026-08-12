@@ -27,10 +27,12 @@ import numpy as np
 from polymath_kinematics import (
     ArticulatedModel,
     ArticulatedProjector,
+    AxleReference,
     BicycleModel,
     BicycleProjector,
     DifferentialDriveModel,
     DifferentialDriveProjector,
+    Footprint,
     Pose2D,
 )
 
@@ -55,12 +57,12 @@ def _states_to_arrays(states):
 
 
 def _footprint_series(states, attr: str):
-    """Stack the per-sample footprint polygons from a projection into an (N, 4, 2) array.
+    """Stack the per-sample footprint polygons from a projection into an (N, V, 2) array.
 
     ``attr`` is the projected-state attribute holding the footprint (``footprint`` for single-body
-    models, ``front_footprint`` / ``rear_footprint`` for articulated). Returns ``None`` if any
-    sample has an empty footprint (i.e. the projector was given no footprint dimensions), so
-    downstream consumers can fall back cleanly.
+    models, ``front_footprint`` / ``rear_footprint`` for articulated). V is the polygon's vertex
+    count. Returns ``None`` if any sample has an empty footprint (no footprint was set on the
+    projector), so downstream consumers can fall back cleanly.
     """
     corners = []
     for s in states:
@@ -71,6 +73,11 @@ def _footprint_series(states, attr: str):
     return np.asarray(corners, dtype=float)
 
 
+def _joint_pose_series(states):
+    """Stack the articulated projector's per-sample joint pose into an (N, 3) [x, y, theta] array."""
+    return np.asarray([[s.joint_pose.x, s.joint_pose.y, s.joint_pose.theta] for s in states], dtype=float)
+
+
 def generate_lattice_differential(
     wheel_radius: float,
     track_width: float,
@@ -78,9 +85,7 @@ def generate_lattice_differential(
     wheel_velocity_diffs: tuple[float, ...],
     duration: float,
     time_step: float = 0.02,
-    front_overhang_m: float = 0.0,
-    rear_overhang_m: float = 0.0,
-    body_width_m: float = 0.0,
+    footprint: Footprint | None = None,
 ) -> list[DifferentialTrajectory]:
     """Generate trajectory lattice by sweeping wheel velocity differences.
 
@@ -114,9 +119,7 @@ def generate_lattice_differential(
         max(linear_velocities),
         min(angular_velocities),
         max(angular_velocities),
-        front_overhang_m,
-        rear_overhang_m,
-        body_width_m,
+        footprint or [],
     )
 
     trajectories: list[DifferentialTrajectory] = []
@@ -164,9 +167,8 @@ def generate_lattice_bicycle(
     min_steering_angle_rad: float | None = None,
     max_steering_angle_rad: float | None = None,
     steering_rate_rad_s: float = 0.0,
-    front_overhang_m: float = 0.0,
-    rear_overhang_m: float = 0.0,
-    body_width_m: float = 0.0,
+    axle_reference: AxleReference = AxleReference.REAR,
+    footprint: Footprint | None = None,
 ) -> list[BicycleTrajectory]:
     """Generate trajectory lattice by sweeping steering angles.
 
@@ -184,7 +186,7 @@ def generate_lattice_bicycle(
     max_angle = max_steering_angle_rad if max_steering_angle_rad is not None else max(angles)
 
     model = BicycleModel(wheelbase, track_width, wheel_radius)
-    projector = BicycleProjector(model, min_angle, max_angle, front_overhang_m, rear_overhang_m, body_width_m)
+    projector = BicycleProjector(model, min_angle, max_angle, axle_reference, footprint or [])
 
     trajectories: list[BicycleTrajectory] = []
     for drive_velocity in drive_velocities:
@@ -232,10 +234,9 @@ def generate_lattice_articulated(
     min_articulation_angle_rad: float | None = None,
     max_articulation_angle_rad: float | None = None,
     articulation_rate_rad_s: float = 0.0,
-    front_joint_to_bumper_m: float = 0.0,
-    front_body_width_m: float = 0.0,
-    rear_joint_to_bumper_m: float = 0.0,
-    rear_body_width_m: float = 0.0,
+    axle_reference: AxleReference = AxleReference.REAR,
+    front_footprint: Footprint | None = None,
+    rear_footprint: Footprint | None = None,
 ) -> list[ArticulatedTrajectory]:
     """Generate trajectory lattice by sweeping articulation angles.
 
@@ -256,13 +257,7 @@ def generate_lattice_articulated(
         rear_wheel_radius,
     )
     projector = ArticulatedProjector(
-        model,
-        min_angle,
-        max_angle,
-        front_joint_to_bumper_m,
-        front_body_width_m,
-        rear_joint_to_bumper_m,
-        rear_body_width_m,
+        model, min_angle, max_angle, axle_reference, front_footprint or [], rear_footprint or []
     )
 
     trajectories: list[ArticulatedTrajectory] = []
@@ -292,6 +287,7 @@ def generate_lattice_articulated(
                     turning_radius=states[0].vehicle_state.front_axle_turning_radius_m,
                     front_footprint_series=_footprint_series(states, 'front_footprint'),
                     rear_footprint_series=_footprint_series(states, 'rear_footprint'),
+                    joint_pose_series=_joint_pose_series(states),
                 )
             )
 
@@ -318,9 +314,8 @@ def single_bicycle_trajectory(
     time_step: float = 0.02,
     min_steering_angle_rad: float | None = None,
     max_steering_angle_rad: float | None = None,
-    front_overhang_m: float = 0.0,
-    rear_overhang_m: float = 0.0,
-    body_width_m: float = 0.0,
+    axle_reference: AxleReference = AxleReference.REAR,
+    footprint: Footprint | None = None,
 ) -> BicycleTrajectory:
     """Ramp a bicycle steering angle from `initial` toward `target` at `rate` rad/s
     over `duration` seconds, returning the resulting trajectory.
@@ -334,9 +329,7 @@ def single_bicycle_trajectory(
         max_steering_angle_rad = max(initial_steering_angle_rad, target_steering_angle_rad)
 
     model = BicycleModel(wheelbase, track_width, wheel_radius)
-    projector = BicycleProjector(
-        model, min_steering_angle_rad, max_steering_angle_rad, front_overhang_m, rear_overhang_m, body_width_m
-    )
+    projector = BicycleProjector(model, min_steering_angle_rad, max_steering_angle_rad, axle_reference, footprint or [])
     states = projector.project(
         horizon_s=duration,
         dt_s=time_step,
@@ -378,10 +371,9 @@ def single_articulated_trajectory(
     time_step: float = 0.02,
     min_articulation_angle_rad: float | None = None,
     max_articulation_angle_rad: float | None = None,
-    front_joint_to_bumper_m: float = 0.0,
-    front_body_width_m: float = 0.0,
-    rear_joint_to_bumper_m: float = 0.0,
-    rear_body_width_m: float = 0.0,
+    axle_reference: AxleReference = AxleReference.REAR,
+    front_footprint: Footprint | None = None,
+    rear_footprint: Footprint | None = None,
 ) -> ArticulatedTrajectory:
     """Ramp an articulation angle from `initial` toward `target` at `rate` rad/s."""
     if min_articulation_angle_rad is None:
@@ -401,10 +393,9 @@ def single_articulated_trajectory(
         model,
         min_articulation_angle_rad,
         max_articulation_angle_rad,
-        front_joint_to_bumper_m,
-        front_body_width_m,
-        rear_joint_to_bumper_m,
-        rear_body_width_m,
+        axle_reference,
+        front_footprint or [],
+        rear_footprint or [],
     )
     states = projector.project(
         horizon_s=duration,
@@ -430,6 +421,7 @@ def single_articulated_trajectory(
         articulation_angle_series=articulation_series,
         front_footprint_series=_footprint_series(states, 'front_footprint'),
         rear_footprint_series=_footprint_series(states, 'rear_footprint'),
+        joint_pose_series=_joint_pose_series(states),
     )
 
 
@@ -448,9 +440,7 @@ def single_differential_trajectory(
     max_linear_velocity: float | None = None,
     min_angular_velocity: float | None = None,
     max_angular_velocity: float | None = None,
-    front_overhang_m: float = 0.0,
-    rear_overhang_m: float = 0.0,
-    body_width_m: float = 0.0,
+    footprint: Footprint | None = None,
 ) -> DifferentialTrajectory:
     """Ramp diff-drive body command (v, omega) from initial toward target at the
     given accelerations, integrating pose forward over `duration`.
@@ -471,9 +461,7 @@ def single_differential_trajectory(
         max_linear_velocity,
         min_angular_velocity,
         max_angular_velocity,
-        front_overhang_m,
-        rear_overhang_m,
-        body_width_m,
+        footprint or [],
     )
     states = projector.project(
         horizon_s=duration,

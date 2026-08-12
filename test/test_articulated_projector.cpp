@@ -158,22 +158,31 @@ TEST_CASE("ArticulatedProjector step - realized gamma-dot affects rear-axle omeg
   CHECK(slow_ramp.angular_velocity_rad_s != Approx(snap.angular_velocity_rad_s));
 }
 
-// Footprint dimensions used by the footprint tests below.
+// Body footprints used by the footprint tests below. Each polygon is measured from its OWN axle.
 namespace
 {
-constexpr double FRONT_JOINT_TO_BUMPER = 2.2;
+// Front body: 2.2 m ahead of the front axle to the bucket, 0.4 m behind it.
+constexpr double FRONT_AHEAD = 2.2;
+constexpr double FRONT_BEHIND = 0.4;
 constexpr double FRONT_BODY_WIDTH = 2.0;
-constexpr double REAR_JOINT_TO_BUMPER = 2.0;
+// Rear body: 0.3 m ahead of the rear axle, 2.0 m behind it to the counterweight.
+constexpr double REAR_AHEAD = 0.3;
+constexpr double REAR_BEHIND = 2.0;
 constexpr double REAR_BODY_WIDTH = 2.0;
 
-ArticulatedProjector make_footprint_projector()
+ArticulatedProjector make_footprint_projector(AxleReference reference = AxleReference::REAR)
 {
   return ArticulatedProjector(
-    make_model(), MIN_ANGLE, MAX_ANGLE, FRONT_JOINT_TO_BUMPER, FRONT_BODY_WIDTH, REAR_JOINT_TO_BUMPER, REAR_BODY_WIDTH);
+    make_model(),
+    MIN_ANGLE,
+    MAX_ANGLE,
+    reference,
+    rectangleFootprint(FRONT_AHEAD, FRONT_BEHIND, FRONT_BODY_WIDTH),
+    rectangleFootprint(REAR_AHEAD, REAR_BEHIND, REAR_BODY_WIDTH));
 }
 }  // namespace
 
-TEST_CASE("ArticulatedProjector - no footprint dims yields empty footprints (never throws)")
+TEST_CASE("ArticulatedProjector - no footprint set yields empty footprints (never throws)")
 {
   ArticulatedProjector projector(make_model(), MIN_ANGLE, MAX_ANGLE);
   Pose2D pose{0.0, 0.0, 0.0};
@@ -188,51 +197,132 @@ TEST_CASE("ArticulatedProjector - no footprint dims yields empty footprints (nev
   CHECK(states.front().rear_footprint.empty());
 }
 
-TEST_CASE("ArticulatedProjector footprint - zero articulation, both bodies aligned along +x")
+TEST_CASE("ArticulatedProjector - joint pose is reported alongside the reference-axle pose")
 {
   auto projector = make_footprint_projector();
-  // Pose (base_link) is the articulation joint; place it at the origin, rear-body heading +x.
-  Pose2D pose{0.0, 0.0, 0.0};
-  auto result = projector.step(0.1, pose, 0.0, 0.0, 0.0, 0.0);  // v=0 so pose stays; gamma=0
+  // REAR reference: pose is the rear axle at the origin, so the joint sits REAR_ARM ahead.
+  auto result = projector.step(0.1, Pose2D{0.0, 0.0, 0.0}, 0.0, 0.0, 0.0, 0.0);
+  CHECK(result.pose.x == Approx(0.0));
+  CHECK(result.joint_pose.x == Approx(REAR_ARM));
+  CHECK(result.joint_pose.y == Approx(0.0));
+  CHECK(result.joint_pose.theta == Approx(0.0));
+}
+
+TEST_CASE("ArticulatedProjector footprint - zero articulation, each body about its own axle")
+{
+  auto projector = make_footprint_projector();
+  // REAR reference: rear axle at the origin, rear-body heading +x. gamma=0 so both bodies align.
+  auto result = projector.step(0.1, Pose2D{0.0, 0.0, 0.0}, 0.0, 0.0, 0.0, 0.0);  // v=0 so pose stays
 
   REQUIRE(result.front_footprint.size() == 4);
   REQUIRE(result.rear_footprint.size() == 4);
 
-  // Joint is the pose (origin).
-  const double joint_x = 0.0;
-  // Front body spans [joint, joint + FRONT_JOINT_TO_BUMPER]; corners 0 and 3 are at the joint.
-  CHECK(result.front_footprint[0].x == Approx(joint_x));
+  // Rear body is measured from the rear axle (the origin here).
+  CHECK(result.rear_footprint[0].x == Approx(-REAR_BEHIND));
+  CHECK(result.rear_footprint[0].y == Approx(-REAR_BODY_WIDTH / 2.0));
+  CHECK(result.rear_footprint[1].x == Approx(REAR_AHEAD));
+
+  // Front axle is a joint arm plus a front arm ahead of the rear axle when gamma = 0.
+  const double front_axle_x = REAR_ARM + FRONT_ARM;
+  CHECK(result.front_footprint[0].x == Approx(front_axle_x - FRONT_BEHIND));
   CHECK(result.front_footprint[0].y == Approx(-FRONT_BODY_WIDTH / 2.0));
-  CHECK(result.front_footprint[1].x == Approx(joint_x + FRONT_JOINT_TO_BUMPER));
-  CHECK(result.front_footprint[1].y == Approx(-FRONT_BODY_WIDTH / 2.0));
-  // Rear body spans [joint - REAR_JOINT_TO_BUMPER, joint].
-  CHECK(result.rear_footprint[0].x == Approx(joint_x - REAR_JOINT_TO_BUMPER));
-  CHECK(result.rear_footprint[1].x == Approx(joint_x));
-  CHECK(result.rear_footprint[1].y == Approx(-REAR_BODY_WIDTH / 2.0));
+  CHECK(result.front_footprint[1].x == Approx(front_axle_x + FRONT_AHEAD));
 }
 
-TEST_CASE("ArticulatedProjector footprint - nonzero articulation folds the front body about the joint")
+TEST_CASE("ArticulatedProjector footprint - nonzero articulation swings the front body about the joint")
 {
   auto projector = make_footprint_projector();
-  Pose2D pose{0.0, 0.0, 0.0};
   const double gamma = 0.3;
-  auto result = projector.step(0.1, pose, gamma, gamma, 0.0, 0.0);  // hold gamma, v=0
+  auto result = projector.step(0.1, Pose2D{0.0, 0.0, 0.0}, gamma, gamma, 0.0, 0.0);  // hold gamma, v=0
 
   REQUIRE(result.front_footprint.size() == 4);
-  // Joint is the pose (origin).
-  const double joint_x = 0.0;
-  const double joint_y = 0.0;
-  // The front-bumper midpoint (between corners 1 and 2) lies on the front-body axis at distance
-  // FRONT_JOINT_TO_BUMPER from the joint, along the front heading (rear theta + gamma). Using the
-  // midpoint avoids the body-width offset that each individual corner carries.
-  const double front_theta = 0.0 + gamma;
+  // Joint sits REAR_ARM ahead of the rear axle; the front axle is FRONT_ARM further along the
+  // front heading (theta_rear + gamma).
+  const double front_theta = gamma;
+  const double front_axle_x = REAR_ARM + FRONT_ARM * std::cos(front_theta);
+  const double front_axle_y = FRONT_ARM * std::sin(front_theta);
+  // Compare bumper midpoints, which lie on the body axis and carry no width offset.
   const double bumper_mid_x = (result.front_footprint[1].x + result.front_footprint[2].x) / 2.0;
   const double bumper_mid_y = (result.front_footprint[1].y + result.front_footprint[2].y) / 2.0;
-  CHECK(bumper_mid_x == Approx(joint_x + FRONT_JOINT_TO_BUMPER * std::cos(front_theta)));
-  CHECK(bumper_mid_y == Approx(joint_y + FRONT_JOINT_TO_BUMPER * std::sin(front_theta)));
-  // Rear body stays aligned with the rear heading (unchanged from the zero case).
-  CHECK(result.rear_footprint[0].x == Approx(joint_x - REAR_JOINT_TO_BUMPER));
-  CHECK(result.rear_footprint[0].y == Approx(0.0 - REAR_BODY_WIDTH / 2.0));
+  CHECK(bumper_mid_x == Approx(front_axle_x + FRONT_AHEAD * std::cos(front_theta)));
+  CHECK(bumper_mid_y == Approx(front_axle_y + FRONT_AHEAD * std::sin(front_theta)));
+  // Rear body is unaffected by gamma: still measured straight back from the rear axle.
+  CHECK(result.rear_footprint[0].x == Approx(-REAR_BEHIND));
+  CHECK(result.rear_footprint[0].y == Approx(-REAR_BODY_WIDTH / 2.0));
+}
+
+TEST_CASE("ArticulatedProjector - FRONT reference reports the front axle and its body heading")
+{
+  const double gamma = 0.3;
+  auto projector = make_footprint_projector(AxleReference::FRONT);
+  // Seed with the front-axle pose that corresponds to a rear axle at the origin heading +x.
+  const double front_theta = gamma;
+  const Pose2D front_start{
+    REAR_ARM + FRONT_ARM * std::cos(front_theta), FRONT_ARM * std::sin(front_theta), front_theta};
+  auto result = projector.step(0.1, front_start, gamma, gamma, 0.0, 0.0);  // hold gamma, v=0
+
+  // Pose comes back at the front axle with the FRONT-body heading, and the joint is unchanged.
+  CHECK(result.pose.x == Approx(front_start.x));
+  CHECK(result.pose.y == Approx(front_start.y));
+  CHECK(result.pose.theta == Approx(front_theta));
+  CHECK(result.joint_pose.x == Approx(REAR_ARM));
+  CHECK(result.joint_pose.y == Approx(0.0));
+  CHECK(result.joint_pose.theta == Approx(0.0));
+}
+
+TEST_CASE("ArticulatedProjector - FRONT and REAR references describe the same physical motion")
+{
+  const double gamma = 0.25;
+  auto rear_projector = make_footprint_projector(AxleReference::REAR);
+  auto front_projector = make_footprint_projector(AxleReference::FRONT);
+
+  const double front_theta = gamma;
+  const Pose2D rear_start{0.0, 0.0, 0.0};
+  const Pose2D front_start{
+    REAR_ARM + FRONT_ARM * std::cos(front_theta), FRONT_ARM * std::sin(front_theta), front_theta};
+
+  auto rear_traj = rear_projector.project(1.0, 0.05, rear_start, gamma, gamma, 0.0, 1.0);
+  auto front_traj = front_projector.project(1.0, 0.05, front_start, gamma, gamma, 0.0, 1.0);
+  REQUIRE(rear_traj.size() == front_traj.size());
+
+  // Same vehicle: the joint pose and both world-frame footprints must agree sample for sample,
+  // regardless of which axle the caller chose to reference.
+  for (std::size_t i = 0; i < rear_traj.size(); ++i) {
+    CHECK(front_traj[i].joint_pose.x == Approx(rear_traj[i].joint_pose.x));
+    CHECK(front_traj[i].joint_pose.y == Approx(rear_traj[i].joint_pose.y));
+    CHECK(front_traj[i].joint_pose.theta == Approx(rear_traj[i].joint_pose.theta));
+    REQUIRE(front_traj[i].front_footprint.size() == rear_traj[i].front_footprint.size());
+    for (std::size_t k = 0; k < rear_traj[i].front_footprint.size(); ++k) {
+      CHECK(front_traj[i].front_footprint[k].x == Approx(rear_traj[i].front_footprint[k].x));
+      CHECK(front_traj[i].front_footprint[k].y == Approx(rear_traj[i].front_footprint[k].y));
+      CHECK(front_traj[i].rear_footprint[k].x == Approx(rear_traj[i].rear_footprint[k].x));
+      CHECK(front_traj[i].rear_footprint[k].y == Approx(rear_traj[i].rear_footprint[k].y));
+    }
+  }
+}
+
+TEST_CASE("ArticulatedProjector footprint - arbitrary polygons are carried through vertex for vertex")
+{
+  // Five-vertex front body, three-vertex rear body: nothing may assume 4 corners.
+  const Footprint front_body{
+    Point2D{-0.4, -1.0}, Point2D{1.8, -1.0}, Point2D{2.4, 0.0}, Point2D{1.8, 1.0}, Point2D{-0.4, 1.0}};
+  const Footprint rear_body{Point2D{0.3, -0.9}, Point2D{-1.9, 0.0}, Point2D{0.3, 0.9}};
+  ArticulatedProjector projector(make_model(), MIN_ANGLE, MAX_ANGLE, AxleReference::REAR, front_body, rear_body);
+
+  auto result = projector.step(0.1, Pose2D{0.0, 0.0, 0.0}, 0.0, 0.0, 0.0, 0.0);
+  REQUIRE(result.front_footprint.size() == front_body.size());
+  REQUIRE(result.rear_footprint.size() == rear_body.size());
+  // gamma = 0 and rear axle at the origin: rear body passes through unchanged, front body shifts
+  // by the full wheelbase with no rotation.
+  const double front_axle_x = REAR_ARM + FRONT_ARM;
+  for (std::size_t i = 0; i < rear_body.size(); ++i) {
+    CHECK(result.rear_footprint[i].x == Approx(rear_body[i].x));
+    CHECK(result.rear_footprint[i].y == Approx(rear_body[i].y));
+  }
+  for (std::size_t i = 0; i < front_body.size(); ++i) {
+    CHECK(result.front_footprint[i].x == Approx(front_axle_x + front_body[i].x));
+    CHECK(result.front_footprint[i].y == Approx(front_body[i].y));
+  }
 }
 
 }  // namespace polymath::kinematics

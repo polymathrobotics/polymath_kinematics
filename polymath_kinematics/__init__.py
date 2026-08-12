@@ -18,6 +18,7 @@ from polymath_kinematics_cpp import (
     ArticulatedProjectedState,
     ArticulatedProjector,
     ArticulatedVehicleState,
+    AxleReference,
     BicycleBodyVelocity,
     BicycleModel,
     BicycleProjectedState,
@@ -30,7 +31,13 @@ from polymath_kinematics_cpp import (
     DifferentialDriveWheelVelocities,
     Point2D,
     Pose2D,
+    rectangle_footprint,
+    transform_footprint,
 )
+
+# The C++ Footprint is std::vector<Point2D>, which pybind11 exposes as a plain list of Point2D.
+# Alias it so annotations can name the concept.
+Footprint = list[Point2D]
 
 __all__ = [
     'ArticulatedAxleVelocities',
@@ -38,6 +45,7 @@ __all__ = [
     'ArticulatedProjectedState',
     'ArticulatedProjector',
     'ArticulatedVehicleState',
+    'AxleReference',
     'BicycleBodyVelocity',
     'BicycleModel',
     'BicycleProjectedState',
@@ -48,6 +56,9 @@ __all__ = [
     'DifferentialDriveProjectedState',
     'DifferentialDriveProjector',
     'DifferentialDriveWheelVelocities',
+    'Footprint',
     'Point2D',
     'Pose2D',
+    'rectangle_footprint',
+    'transform_footprint',
 ]

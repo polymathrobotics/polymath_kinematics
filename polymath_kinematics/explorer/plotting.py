@@ -46,8 +46,9 @@ def plot_vehicle_footprint(
 ) -> None:
     """Draw a single-body vehicle footprint at a given pose.
 
-    ``body_corners`` is the projector's ``footprint``: world-frame corners in the projector's
-    order, rear-right, front-right, front-left, rear-left. The heading arrow is derived from it.
+    ``body_corners`` is the projector's world-frame ``footprint`` — any vertex count, so the
+    heading arrow is measured from the polygon's extent along ``theta`` rather than from fixed
+    corner indices.
 
     ``steering_angle`` (radians) draws two front-wheel indicators at ``front_axle_offset_m``
     ahead of the pose reference, spaced by ``track_width_m``. Pass ``None`` for models without
@@ -59,17 +60,21 @@ def plot_vehicle_footprint(
     body = np.asarray(body_corners, dtype=float)
     ax.fill(body[:, 0], body[:, 1], color=color, alpha=alpha, edgecolor=color, linewidth=0.5)
 
-    # Heading arrow spans the body: rear-edge midpoint -> front-edge midpoint.
-    rear_mid = (body[0] + body[3]) / 2.0
-    front_mid = (body[1] + body[2]) / 2.0
-    heading_vec = front_mid - rear_mid
-    body_length = float(np.hypot(*heading_vec))
-    body_width = float(np.hypot(*(body[2] - body[1])))
+    # Heading arrow spans the body's extent along the heading, measured through the pose.
+    origin = np.array([x, y])
+    heading = np.array([cos_theta, sin_theta])
+    lateral = np.array([-sin_theta, cos_theta])
+    relative = body - origin
+    along = relative @ heading
+    across = relative @ lateral
+    body_length = float(along.max() - along.min())
+    body_width = float(across.max() - across.min())
+    arrow_start = origin + heading * along.min()
     ax.arrow(
-        rear_mid[0],
-        rear_mid[1],
-        heading_vec[0],
-        heading_vec[1],
+        arrow_start[0],
+        arrow_start[1],
+        heading[0] * body_length,
+        heading[1] * body_length,
         head_width=body_width * 0.3,
         head_length=body_length * 0.1,
         fc=color,
@@ -110,42 +115,45 @@ def plot_articulated_footprint(
     ax: plt.Axes,
     front_corners: np.ndarray,
     rear_corners: np.ndarray,
+    joint_xy: np.ndarray,
+    front_theta: float,
     color: str = 'blue',
     alpha: float = 0.5,
 ) -> None:
-    """Draw an articulated vehicle footprint (two connected rectangles).
+    """Draw an articulated vehicle footprint: two independently posed body polygons.
 
-    Corners come from the projector's ``front_footprint`` / ``rear_footprint``, which already
-    carry the rear-segment anchoring about the joint. Front body is
-    [joint-right, bumper-right, bumper-left, joint-left], so the joint is mid(0, 3); rear body is
-    [bumper-right, joint-right, joint-left, bumper-left]. Joint marker and arrow follow from those.
+    Each polygon comes from the projector already in the world frame, anchored at its own axle,
+    so nothing here assumes a vertex count or ordering. ``joint_xy`` and ``front_theta`` come from
+    the projector's ``joint_pose`` and articulation angle; they place the joint marker and the
+    front-body heading arrow, which cannot be inferred from an arbitrary polygon.
     """
     fc = np.asarray(front_corners, dtype=float)
     rc = np.asarray(rear_corners, dtype=float)
+    joint = np.asarray(joint_xy, dtype=float)
 
     ax.fill(fc[:, 0], fc[:, 1], color=color, alpha=alpha, edgecolor=color, linewidth=0.5)
     ax.fill(rc[:, 0], rc[:, 1], color=color, alpha=alpha * 0.8, edgecolor=color, linewidth=0.5)
+    ax.plot(joint[0], joint[1], 'o', color=color, markersize=4, alpha=min(1.0, alpha + 0.3))
 
-    joint_point = (fc[0] + fc[3]) / 2.0
-    front_bumper_mid = (fc[1] + fc[2]) / 2.0
-    front_width = float(np.hypot(*(fc[2] - fc[1])))
-
-    ax.plot(joint_point[0], joint_point[1], 'o', color=color, markersize=4, alpha=min(1.0, alpha + 0.3))
-
-    heading_vec = front_bumper_mid - joint_point
-    front_length = float(np.hypot(*heading_vec))
-    ax.arrow(
-        joint_point[0],
-        joint_point[1],
-        heading_vec[0],
-        heading_vec[1],
-        head_width=front_width * 0.2,
-        head_length=front_length * 0.08 if front_length else 0.05,
-        fc=color,
-        ec=color,
-        alpha=min(1.0, alpha + 0.3),
-        length_includes_head=True,
-    )
+    # Arrow runs from the joint to the front body's forward extent along the front-body heading.
+    heading = np.array([np.cos(front_theta), np.sin(front_theta)])
+    lateral = np.array([-np.sin(front_theta), np.cos(front_theta)])
+    relative = fc - joint
+    front_length = float((relative @ heading).max())
+    front_width = float(np.ptp(relative @ lateral))
+    if front_length > 0.0:
+        ax.arrow(
+            joint[0],
+            joint[1],
+            heading[0] * front_length,
+            heading[1] * front_length,
+            head_width=front_width * 0.2,
+            head_length=front_length * 0.08,
+            fc=color,
+            ec=color,
+            alpha=min(1.0, alpha + 0.3),
+            length_includes_head=True,
+        )
 
 
 def select_symmetric_trajectories(
@@ -259,12 +267,24 @@ def plot_trajectory_with_footprints(
 
             if model_type == 'Articulated':
                 articulated: ArticulatedTrajectory = trajectory  # type: ignore[assignment]
-                if articulated.front_footprint_series is None or articulated.rear_footprint_series is None:
+                if (
+                    articulated.front_footprint_series is None
+                    or articulated.rear_footprint_series is None
+                    or articulated.joint_pose_series is None
+                ):
                     continue
+                joint_x, joint_y, joint_theta = articulated.joint_pose_series[footprint_index]
+                if articulated.articulation_angle_series is not None:
+                    gamma = float(articulated.articulation_angle_series[footprint_index])
+                else:
+                    gamma = articulated.articulation_angle
                 plot_articulated_footprint(
                     ax,
                     articulated.front_footprint_series[footprint_index],
                     articulated.rear_footprint_series[footprint_index],
+                    joint_xy=np.array([joint_x, joint_y]),
+                    # joint_pose.theta is the rear-body heading; the front body leads it by gamma.
+                    front_theta=joint_theta + gamma,
                     color=color,
                     alpha=footprint_alpha,
                 )

@@ -15,9 +15,10 @@
 
 import math
 
+import numpy as np
 import pytest
 
-from polymath_kinematics import DifferentialDriveModel
+from polymath_kinematics import AxleReference, DifferentialDriveModel, rectangle_footprint
 from polymath_kinematics.explorer import (
     KINEMATIC_EQUATIONS,
     LATTICE_CONFIG,
@@ -60,9 +61,7 @@ class TestLatticeGeneration:
             wheel_velocity_diffs=(0.0, 5.0),
             duration=1.0,
             time_step=0.1,
-            front_overhang_m=0.4,
-            rear_overhang_m=0.4,
-            body_width_m=0.5,
+            footprint=rectangle_footprint(0.4, 0.4, 0.5),
         )
         for trajectory in trajectories:
             assert trajectory.footprint_series is not None
@@ -249,9 +248,7 @@ class TestPlotting:
             wheel_velocity_diffs=(-5.0, 0.0, 5.0),
             duration=1.0,
             time_step=0.1,
-            front_overhang_m=0.4,
-            rear_overhang_m=0.4,
-            body_width_m=0.5,
+            footprint=rectangle_footprint(0.4, 0.4, 0.5),
         )
 
     @pytest.fixture
@@ -264,9 +261,7 @@ class TestPlotting:
             steering_angles=(-math.radians(15), 0.0, math.radians(15)),
             duration=1.0,
             time_step=0.1,
-            front_overhang_m=2.5 + 0.6,
-            rear_overhang_m=0.5,
-            body_width_m=1.5,
+            footprint=rectangle_footprint(2.5 + 0.6, 0.5, 1.5),
         )
 
     @pytest.fixture
@@ -282,10 +277,10 @@ class TestPlotting:
             articulation_angles=(-math.radians(15), 0.0, math.radians(15)),
             duration=1.0,
             time_step=0.1,
-            front_joint_to_bumper_m=1.5 + 1.0,
-            front_body_width_m=1.8,
-            rear_joint_to_bumper_m=1.2 + 0.8,
-            rear_body_width_m=1.6,
+            # Each polygon is measured from its own axle; the joint is L_f behind the front
+            # axle and L_r ahead of the rear axle.
+            front_footprint=rectangle_footprint(1.0, 1.5, 1.8),
+            rear_footprint=rectangle_footprint(1.2, 0.8, 1.6),
         )
 
     def test_plot_lattice_differential(self, differential_trajectories):
@@ -504,9 +499,7 @@ class TestSingleTrajectory:
             drive_velocity=1.0,
             duration=1.0,
             time_step=0.1,
-            front_overhang_m=3.0,
-            rear_overhang_m=1.0,
-            body_width_m=1.5,
+            footprint=rectangle_footprint(3.0, 1.0, 1.5),
         )
         assert traj.footprint_series is not None
         # (N samples, 4 corners, xy)
@@ -526,10 +519,8 @@ class TestSingleTrajectory:
             drive_velocity=1.0,
             duration=1.0,
             time_step=0.1,
-            front_joint_to_bumper_m=2.2,
-            front_body_width_m=2.0,
-            rear_joint_to_bumper_m=2.0,
-            rear_body_width_m=2.0,
+            front_footprint=rectangle_footprint(0.54, 1.66, 2.0),
+            rear_footprint=rectangle_footprint(1.44, 0.56, 2.0),
         )
         assert traj.front_footprint_series is not None
         assert traj.rear_footprint_series is not None
@@ -537,10 +528,8 @@ class TestSingleTrajectory:
         assert traj.rear_footprint_series.shape == (len(traj.time), 4, 2)
 
     def test_single_articulated_footprint_extends_behind_rear_axle(self):
-        # base_link is the articulation joint. Straight ahead (gamma=0) from the origin along +x,
-        # with rear_joint_to_bumper = articulation_to_rear + rear_overhang, the rear body's
-        # rearmost point is at -(articulation_to_rear + rear_overhang) — i.e. behind the rear
-        # axle (which sits at -articulation_to_rear).
+        # The rear polygon is measured from the rear axle, and the pose (REAR reference) IS the
+        # rear axle, so a rear_overhang of 0.8 must put the rearmost point at exactly -0.8.
         articulation_to_rear = 1.44
         rear_overhang = 0.8
         traj = single_articulated_trajectory(
@@ -556,16 +545,14 @@ class TestSingleTrajectory:
             drive_velocity=0.0,  # stay at the origin so the geometry is exact
             duration=0.2,
             time_step=0.1,
-            front_joint_to_bumper_m=1.66 + 1.0,
-            front_body_width_m=2.0,
-            rear_joint_to_bumper_m=articulation_to_rear + rear_overhang,
-            rear_body_width_m=2.0,
+            front_footprint=rectangle_footprint(1.0, 1.66, 2.0),
+            rear_footprint=rectangle_footprint(articulation_to_rear, rear_overhang, 2.0),
         )
         assert traj.rear_footprint_series is not None
         rear0 = traj.rear_footprint_series[0]  # (4, 2) corners of the first sample
-        min_x = rear0[:, 0].min()
-        assert min_x == pytest.approx(-(articulation_to_rear + rear_overhang))
-        assert min_x < -articulation_to_rear  # extends behind the rear axle
+        assert rear0[:, 0].min() == pytest.approx(-rear_overhang)
+        # Forward extent reaches the joint, which sits L_r ahead of the rear axle.
+        assert rear0[:, 0].max() == pytest.approx(articulation_to_rear)
 
     def test_single_bicycle_footprint_extends_ahead_of_front_axle(self):
         # Pose reference is the rear axle, so front_overhang_m = wheelbase + overhang. Regression
@@ -583,9 +570,7 @@ class TestSingleTrajectory:
             drive_velocity=0.0,  # stay at the origin so the geometry is exact
             duration=0.2,
             time_step=0.1,
-            front_overhang_m=wheelbase + front_overhang,
-            rear_overhang_m=rear_overhang,
-            body_width_m=1.5,
+            footprint=rectangle_footprint(wheelbase + front_overhang, rear_overhang, 1.5),
         )
         assert traj.footprint_series is not None
         body0 = traj.footprint_series[0]  # (4, 2) corners of the first sample
@@ -595,6 +580,59 @@ class TestSingleTrajectory:
         assert max_x > wheelbase  # front bumper is AHEAD of the front axle
         assert min_x == pytest.approx(-rear_overhang)
         assert max_x - min_x == pytest.approx(wheelbase + front_overhang + rear_overhang)
+
+    def test_single_bicycle_axle_reference_describes_the_same_body(self):
+        # The same physical vehicle described from each axle must put the body in the same place.
+        wheelbase, front_overhang, rear_overhang, width = 2.5, 0.6, 0.5, 1.5
+        common = dict(
+            track_width=width,
+            wheel_radius=0.3,
+            initial_steering_angle_rad=0.0,
+            target_steering_angle_rad=0.0,
+            steering_rate_rad_s=0.0,
+            drive_velocity=0.0,
+            duration=0.2,
+            time_step=0.1,
+        )
+        from_rear = single_bicycle_trajectory(
+            wheelbase=wheelbase,
+            axle_reference=AxleReference.REAR,
+            footprint=rectangle_footprint(wheelbase + front_overhang, rear_overhang, width),
+            **common,
+        )
+        from_front = single_bicycle_trajectory(
+            wheelbase=wheelbase,
+            axle_reference=AxleReference.FRONT,
+            footprint=rectangle_footprint(front_overhang, wheelbase + rear_overhang, width),
+            **common,
+        )
+        # Both start at the origin *of their own reference axle*, so the front-referenced body
+        # sits a wheelbase back in world terms; shift it to compare the same physical placement.
+        rear_body = from_rear.footprint_series[0]
+        front_body = from_front.footprint_series[0] + np.array([wheelbase, 0.0])
+        assert front_body == pytest.approx(rear_body)
+
+    def test_single_articulated_reports_joint_pose_series(self):
+        articulation_to_rear = 1.44
+        traj = single_articulated_trajectory(
+            articulation_to_front=1.66,
+            articulation_to_rear=articulation_to_rear,
+            front_track=2.0,
+            rear_track=2.0,
+            front_wheel_radius=0.723,
+            rear_wheel_radius=0.723,
+            initial_articulation_angle_rad=0.0,
+            target_articulation_angle_rad=0.0,
+            articulation_rate_rad_s=0.0,
+            drive_velocity=0.0,
+            duration=0.2,
+            time_step=0.1,
+        )
+        assert traj.joint_pose_series is not None
+        assert traj.joint_pose_series.shape == (len(traj.time), 3)
+        # REAR reference at the origin: the joint sits L_r straight ahead.
+        assert traj.joint_pose_series[0][0] == pytest.approx(articulation_to_rear)
+        assert traj.joint_pose_series[0][1] == pytest.approx(0.0)
 
     def test_single_differential_footprint_straddles_body_centre(self):
         # Pose reference is the body centre, so the overhangs are the bumper distances directly.
@@ -611,9 +649,7 @@ class TestSingleTrajectory:
             angular_acceleration=0.0,
             duration=0.2,
             time_step=0.1,
-            front_overhang_m=front_overhang,
-            rear_overhang_m=rear_overhang,
-            body_width_m=0.5,
+            footprint=rectangle_footprint(front_overhang, rear_overhang, 0.5),
         )
         assert traj.footprint_series is not None
         body0 = traj.footprint_series[0]

@@ -142,7 +142,7 @@ TEST_CASE("BicycleProjector project - initial state stored as element 0")
   CHECK(trajectory.front().steering_angle_rad == Approx(0.1));
 }
 
-TEST_CASE("BicycleProjector - no footprint dims yields an empty footprint (never throws)")
+TEST_CASE("BicycleProjector - no footprint set yields an empty footprint (never throws)")
 {
   BicycleProjector projector(BicycleModel(WHEELBASE, TRACK, WHEEL_RADIUS), MIN_ANGLE, MAX_ANGLE);
   Pose2D pose{0.0, 0.0, 0.0};
@@ -152,25 +152,105 @@ TEST_CASE("BicycleProjector - no footprint dims yields an empty footprint (never
 
 TEST_CASE("BicycleProjector footprint - rectangle corners at a known pose")
 {
-  constexpr double FRONT_OVERHANG = 3.0;
-  constexpr double REAR_OVERHANG = 1.0;
-  constexpr double BODY_WIDTH = 2.0;
+  constexpr double FRONT = 3.0;
+  constexpr double REAR = 1.0;
+  constexpr double WIDTH = 2.0;
   BicycleProjector projector(
-    BicycleModel(WHEELBASE, TRACK, WHEEL_RADIUS), MIN_ANGLE, MAX_ANGLE, FRONT_OVERHANG, REAR_OVERHANG, BODY_WIDTH);
+    BicycleModel(WHEELBASE, TRACK, WHEEL_RADIUS),
+    MIN_ANGLE,
+    MAX_ANGLE,
+    AxleReference::REAR,
+    rectangleFootprint(FRONT, REAR, WIDTH));
 
   // v=0, zero steering: pose stays at the origin with heading +x.
   Pose2D pose{0.0, 0.0, 0.0};
   auto result = projector.step(0.1, pose, 0.0, 0.0, 0.0, 0.0);
   REQUIRE(result.footprint.size() == 4);
   // Body frame corners: rear-right, front-right, front-left, rear-left.
-  CHECK(result.footprint[0].x == Approx(-REAR_OVERHANG));
-  CHECK(result.footprint[0].y == Approx(-BODY_WIDTH / 2.0));
-  CHECK(result.footprint[1].x == Approx(FRONT_OVERHANG));
-  CHECK(result.footprint[1].y == Approx(-BODY_WIDTH / 2.0));
-  CHECK(result.footprint[2].x == Approx(FRONT_OVERHANG));
-  CHECK(result.footprint[2].y == Approx(BODY_WIDTH / 2.0));
-  CHECK(result.footprint[3].x == Approx(-REAR_OVERHANG));
-  CHECK(result.footprint[3].y == Approx(BODY_WIDTH / 2.0));
+  CHECK(result.footprint[0].x == Approx(-REAR));
+  CHECK(result.footprint[0].y == Approx(-WIDTH / 2.0));
+  CHECK(result.footprint[1].x == Approx(FRONT));
+  CHECK(result.footprint[1].y == Approx(-WIDTH / 2.0));
+  CHECK(result.footprint[2].x == Approx(FRONT));
+  CHECK(result.footprint[2].y == Approx(WIDTH / 2.0));
+  CHECK(result.footprint[3].x == Approx(-REAR));
+  CHECK(result.footprint[3].y == Approx(WIDTH / 2.0));
+}
+
+TEST_CASE("BicycleProjector footprint - arbitrary polygon is carried through vertex for vertex")
+{
+  // A 5-vertex tapered nose, deliberately not a rectangle.
+  const Footprint body{
+    Point2D{-1.0, -0.9}, Point2D{2.0, -0.9}, Point2D{2.8, 0.0}, Point2D{2.0, 0.9}, Point2D{-1.0, 0.9}};
+  BicycleProjector projector(
+    BicycleModel(WHEELBASE, TRACK, WHEEL_RADIUS), MIN_ANGLE, MAX_ANGLE, AxleReference::REAR, body);
+
+  Pose2D pose{0.0, 0.0, 0.0};
+  auto result = projector.step(0.1, pose, 0.0, 0.0, 0.0, 0.0);
+  REQUIRE(result.footprint.size() == body.size());
+  for (std::size_t i = 0; i < body.size(); ++i) {
+    CHECK(result.footprint[i].x == Approx(body[i].x));
+    CHECK(result.footprint[i].y == Approx(body[i].y));
+  }
+}
+
+TEST_CASE("BicycleProjector - FRONT reference offsets the pose by a wheelbase")
+{
+  const BicycleModel model(WHEELBASE, TRACK, WHEEL_RADIUS);
+  BicycleProjector rear(model, MIN_ANGLE, MAX_ANGLE, AxleReference::REAR);
+  BicycleProjector front(model, MIN_ANGLE, MAX_ANGLE, AxleReference::FRONT);
+
+  // Straight ahead from the origin: the front-axle pose leads the rear-axle pose by the wheelbase.
+  auto rear_traj = rear.project(1.0, 0.1, Pose2D{0.0, 0.0, 0.0}, 0.0, 0.0, 0.0, 1.0);
+  auto front_traj = front.project(1.0, 0.1, Pose2D{WHEELBASE, 0.0, 0.0}, 0.0, 0.0, 0.0, 1.0);
+  REQUIRE(rear_traj.size() == front_traj.size());
+  for (std::size_t i = 0; i < rear_traj.size(); ++i) {
+    CHECK(front_traj[i].pose.x == Approx(rear_traj[i].pose.x + WHEELBASE));
+    CHECK(front_traj[i].pose.y == Approx(rear_traj[i].pose.y));
+    CHECK(front_traj[i].pose.theta == Approx(rear_traj[i].pose.theta));
+  }
+}
+
+TEST_CASE("BicycleProjector - FRONT reference traces the same curve as REAR, offset forward")
+{
+  const BicycleModel model(WHEELBASE, TRACK, WHEEL_RADIUS);
+  const double steering = 0.3;
+  BicycleProjector rear(model, MIN_ANGLE, MAX_ANGLE, AxleReference::REAR);
+  BicycleProjector front(model, MIN_ANGLE, MAX_ANGLE, AxleReference::FRONT);
+
+  // Same physical vehicle, same turn: seed each with its own axle's start pose.
+  auto rear_traj = rear.project(2.0, 0.05, Pose2D{0.0, 0.0, 0.0}, steering, steering, 0.0, 1.5);
+  auto front_traj = front.project(2.0, 0.05, Pose2D{WHEELBASE, 0.0, 0.0}, steering, steering, 0.0, 1.5);
+  REQUIRE(rear_traj.size() == front_traj.size());
+  for (std::size_t i = 0; i < rear_traj.size(); ++i) {
+    // Headings match (one rigid chassis) and the front axle sits a wheelbase ahead along it.
+    const double theta = rear_traj[i].pose.theta;
+    CHECK(front_traj[i].pose.theta == Approx(theta));
+    CHECK(front_traj[i].pose.x == Approx(rear_traj[i].pose.x + WHEELBASE * std::cos(theta)));
+    CHECK(front_traj[i].pose.y == Approx(rear_traj[i].pose.y + WHEELBASE * std::sin(theta)));
+  }
+}
+
+TEST_CASE("BicycleProjector - footprint is anchored at whichever axle is the reference")
+{
+  const BicycleModel model(WHEELBASE, TRACK, WHEEL_RADIUS);
+  // Same physical body described from each axle: bumper 0.5 m past the front axle, 1.0 m behind
+  // the rear axle. From the rear axle that is (WHEELBASE + 0.5) forward; from the front axle it is
+  // 0.5 forward and (WHEELBASE + 1.0) back.
+  BicycleProjector rear(
+    model, MIN_ANGLE, MAX_ANGLE, AxleReference::REAR, rectangleFootprint(WHEELBASE + 0.5, 1.0, 2.0));
+  BicycleProjector front(
+    model, MIN_ANGLE, MAX_ANGLE, AxleReference::FRONT, rectangleFootprint(0.5, WHEELBASE + 1.0, 2.0));
+
+  auto rear_state = rear.step(0.1, Pose2D{0.0, 0.0, 0.0}, 0.0, 0.0, 0.0, 0.0);
+  auto front_state = front.step(0.1, Pose2D{WHEELBASE, 0.0, 0.0}, 0.0, 0.0, 0.0, 0.0);
+  REQUIRE(rear_state.footprint.size() == 4);
+  REQUIRE(front_state.footprint.size() == 4);
+  // Both descriptions must land the body in the same place in the world.
+  for (std::size_t i = 0; i < 4; ++i) {
+    CHECK(front_state.footprint[i].x == Approx(rear_state.footprint[i].x));
+    CHECK(front_state.footprint[i].y == Approx(rear_state.footprint[i].y));
+  }
 }
 
 }  // namespace polymath::kinematics

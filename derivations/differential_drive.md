@@ -88,15 +88,17 @@ no-op, which is how a constant-command trajectory (e.g. one lattice cell) is gen
 ### Footprints
 
 The projector optionally emits a body polygon per sample, keeping the kinematic model itself
-dimension-free. The body is the rectangle spanning
-$[-\text{rear\_overhang},\; +\text{front\_overhang}]$ along the heading by
-$\text{body\_width}$ across, measured from the pose reference. Because that reference is the
-body centre, both overhangs are the bumper distances directly — there is no wheelbase term as
-in the bicycle model.
+dimension-free. The footprint is an **arbitrary polygon** supplied in the body frame: $+x$ along the
+heading, $+y$ to the left, origin at the body centre. Each sample carries it transformed into the
+world frame by that sample's pose.
 
-Each polygon is 4 corners, counter-clockwise, **not** closed (the first corner is not repeated),
-ordered [rear-right, front-right, front-left, rear-left]. A body width of $0$ or less means
-"unset": the footprint comes back empty and projection proceeds normally rather than throwing.
+A differential drive has a single axle, so unlike the bicycle and articulated projectors there is no
+axle reference to select — the body centre is the only sensible origin, and polygon extents are the
+bumper distances directly.
+
+`rectangleFootprint(front_m, rear_m, width_m)` builds the boxy case, ordered counter-clockwise and
+open: rear-right, front-right, front-left, rear-left. An empty polygon means "unset": the footprint
+comes back empty and projection proceeds normally rather than throwing.
 
 ## Future Work
 

@@ -19,11 +19,15 @@ import pytest
 from polymath_kinematics import (
     ArticulatedModel,
     ArticulatedProjector,
+    AxleReference,
     BicycleModel,
     BicycleProjector,
     DifferentialDriveModel,
     DifferentialDriveProjector,
+    Point2D,
     Pose2D,
+    rectangle_footprint,
+    transform_footprint,
 )
 
 
@@ -334,59 +338,120 @@ class TestPoint2D:
 
 
 class TestProjectorFootprints:
-    def test_bicycle_no_dims_empty_footprint(self):
+    def test_bicycle_no_footprint_is_empty(self):
         projector = BicycleProjector(BicycleModel(2.5, 1.5, 0.3), -0.6, 0.6)
         result = projector.step(0.1, Pose2D(), 0.0, 0.0, 0.0, 1.0)
         assert list(result.footprint) == []
 
     def test_bicycle_footprint_exposed(self):
-        # Binding-surface check only: with dims set, the footprint comes through as a 4-corner
-        # polygon of Point2D. Exact corner geometry is covered by the C++ projector tests.
+        # Binding-surface check only: exact geometry is covered by the C++ projector tests.
         projector = BicycleProjector(
-            BicycleModel(2.5, 1.5, 0.3),
-            -0.6,
-            0.6,
-            front_overhang_m=3.0,
-            rear_overhang_m=1.0,
-            body_width_m=2.0,
+            BicycleModel(2.5, 1.5, 0.3), -0.6, 0.6, footprint=rectangle_footprint(3.0, 1.0, 2.0)
         )
         result = projector.step(0.1, Pose2D(), 0.0, 0.0, 0.0, 0.0)
         assert len(result.footprint) == 4
         assert hasattr(result.footprint[0], 'x') and hasattr(result.footprint[0], 'y')
 
+    def test_bicycle_arbitrary_polygon_vertex_count_is_preserved(self):
+        body = [Point2D(-1.0, -0.9), Point2D(2.0, -0.9), Point2D(2.8, 0.1), Point2D(2.0, 0.9), Point2D(-1.0, 0.9)]
+        projector = BicycleProjector(BicycleModel(2.5, 1.5, 0.3), -0.6, 0.6, footprint=body)
+        result = projector.step(0.1, Pose2D(), 0.0, 0.0, 0.0, 0.0)
+        assert len(result.footprint) == 5
+        assert result.footprint[2].x == pytest.approx(2.8)
+        assert result.footprint[2].y == pytest.approx(0.1)
+
     def test_differential_footprint_exposed(self):
         projector = DifferentialDriveProjector(
-            DifferentialDriveModel(0.1, 0.5),
-            -2.0,
-            2.0,
-            -3.0,
-            3.0,
-            front_overhang_m=1.5,
-            rear_overhang_m=0.5,
-            body_width_m=1.0,
+            DifferentialDriveModel(0.1, 0.5), -2.0, 2.0, -3.0, 3.0, footprint=rectangle_footprint(1.5, 0.5, 1.0)
         )
         result = projector.step(0.1, Pose2D(), 0.0, 0.0, 0.0, 0.0, 100.0, 100.0)
         assert len(result.footprint) == 4
 
-    def test_articulated_no_dims_empty_footprints(self):
+    def test_articulated_no_footprint_is_empty(self):
         projector = ArticulatedProjector(ArticulatedModel(1.66, 1.44, 2.0, 2.0, 0.723, 0.723), -0.785, 0.785)
         result = projector.step(0.1, Pose2D(), 0.0, 0.0, 0.0, 1.0)
         assert list(result.front_footprint) == []
         assert list(result.rear_footprint) == []
 
     def test_articulated_footprint_exposed(self):
-        # Binding-surface check only: front and rear footprints come through as 4-corner polygons.
-        # Exact joint-anchored geometry is covered by the C++ projector tests.
+        # Binding-surface check only: exact geometry is covered by the C++ projector tests.
         projector = ArticulatedProjector(
             ArticulatedModel(1.66, 1.44, 2.0, 2.0, 0.723, 0.723),
             -0.785,
             0.785,
-            front_joint_to_bumper_m=2.2,
-            front_body_width_m=2.0,
-            rear_joint_to_bumper_m=2.0,
-            rear_body_width_m=2.0,
+            front_footprint=rectangle_footprint(2.2, 0.4, 2.0),
+            rear_footprint=rectangle_footprint(0.3, 2.0, 2.0),
         )
         result = projector.step(0.1, Pose2D(), 0.0, 0.0, 0.0, 0.0)
         assert len(result.front_footprint) == 4
         assert len(result.rear_footprint) == 4
         assert hasattr(result.front_footprint[0], 'x') and hasattr(result.front_footprint[0], 'y')
+
+    def test_articulated_reports_joint_pose(self):
+        articulation_to_rear = 1.44
+        projector = ArticulatedProjector(
+            ArticulatedModel(1.66, articulation_to_rear, 2.0, 2.0, 0.723, 0.723), -0.785, 0.785
+        )
+        # REAR reference (the default): the rear axle is the pose, so the joint leads it by L_r.
+        result = projector.step(0.1, Pose2D(), 0.0, 0.0, 0.0, 0.0)
+        assert result.joint_pose.x == pytest.approx(articulation_to_rear)
+        assert result.joint_pose.y == pytest.approx(0.0)
+
+
+class TestAxleReference:
+    def test_enum_values_exposed(self):
+        assert AxleReference.FRONT != AxleReference.REAR
+
+    def test_bicycle_default_is_rear(self):
+        projector = BicycleProjector(BicycleModel(2.5, 1.5, 0.3), -0.6, 0.6)
+        assert projector.axle_reference == AxleReference.REAR
+
+    def test_bicycle_front_reference_leads_by_a_wheelbase(self):
+        wheelbase = 2.5
+        model = BicycleModel(wheelbase, 1.5, 0.3)
+        rear = BicycleProjector(model, -0.6, 0.6, axle_reference=AxleReference.REAR)
+        front = BicycleProjector(model, -0.6, 0.6, axle_reference=AxleReference.FRONT)
+        # Straight ahead: the front-axle pose stays a wheelbase ahead of the rear-axle pose.
+        rear_state = rear.step(0.1, Pose2D(), 0.0, 0.0, 0.0, 1.0)
+        front_state = front.step(0.1, Pose2D(x=wheelbase), 0.0, 0.0, 0.0, 1.0)
+        assert front_state.pose.x == pytest.approx(rear_state.pose.x + wheelbase)
+        assert front_state.pose.y == pytest.approx(rear_state.pose.y)
+
+    def test_articulated_front_reference_uses_the_front_body_heading(self):
+        articulation_to_front, articulation_to_rear = 1.66, 1.44
+        gamma = 0.3
+        projector = ArticulatedProjector(
+            ArticulatedModel(articulation_to_front, articulation_to_rear, 2.0, 2.0, 0.723, 0.723),
+            -0.785,
+            0.785,
+            axle_reference=AxleReference.FRONT,
+        )
+        # Front-axle pose corresponding to a rear axle at the origin heading +x, held at gamma.
+        start = Pose2D(
+            x=articulation_to_rear + articulation_to_front * math.cos(gamma),
+            y=articulation_to_front * math.sin(gamma),
+            theta=gamma,
+        )
+        result = projector.step(0.1, start, gamma, gamma, 0.0, 0.0)
+        assert result.pose.theta == pytest.approx(gamma)
+        assert result.joint_pose.x == pytest.approx(articulation_to_rear)
+        assert result.joint_pose.theta == pytest.approx(0.0)
+
+
+class TestRectangleFootprint:
+    def test_corner_order_and_extents(self):
+        corners = rectangle_footprint(3.0, 1.0, 2.0)
+        assert len(corners) == 4
+        # CCW, open: rear-right, front-right, front-left, rear-left.
+        assert (corners[0].x, corners[0].y) == pytest.approx((-1.0, -1.0))
+        assert (corners[1].x, corners[1].y) == pytest.approx((3.0, -1.0))
+        assert (corners[2].x, corners[2].y) == pytest.approx((3.0, 1.0))
+        assert (corners[3].x, corners[3].y) == pytest.approx((-1.0, 1.0))
+
+    def test_non_positive_width_is_empty(self):
+        assert list(rectangle_footprint(3.0, 1.0, 0.0)) == []
+
+    def test_transform_footprint_rotates_and_translates(self):
+        corners = transform_footprint([Point2D(1.0, 0.0)], Pose2D(x=2.0, y=3.0, theta=math.pi / 2))
+        assert corners[0].x == pytest.approx(2.0)
+        assert corners[0].y == pytest.approx(4.0)

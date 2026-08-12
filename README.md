@@ -81,7 +81,7 @@ uv run python -m streamlit run polymath_kinematics/kinematic_explorer_app.py
 The app opens at `http://localhost:8501` and exposes:
 
 - Model selection (Differential Drive / Bicycle / Articulated)
-- Geometry sliders (wheelbase, track width, wheel radii, body overhangs)
+- Geometry sliders (wheelbase, track width, wheel radii, body overhangs) and a front/rear axle reference selector
 - Trajectory lattice visualisation across steering / articulation angles
 - Kinematic analysis plots (angle → angular velocity, turning radius vs angle)
 - Vehicle-footprint overlays along trajectories, drawn from the projector-computed polygons
@@ -129,8 +129,10 @@ from polymath_kinematics import (
     DifferentialDriveProjector,
     BicycleProjector,
     ArticulatedProjector,
+    AxleReference,
     Pose2D,
     Point2D,
+    rectangle_footprint,
 )
 ```
 
@@ -202,30 +204,47 @@ ramps toward a target at a bounded rate, clamped to `[min, max]`. `DifferentialD
 has no steered joint, so it instead ramps the body command `(v, ω)` under separate linear and
 angular acceleration limits.
 
-Every projector optionally computes a per-sample vehicle footprint. Dimensions live on the
-projector, not the model — the kinematic models stay dimension-free. **Overhangs are absolute
-distances from that projector's pose reference to each bumper**, which differs per model:
+Every projector optionally computes a per-sample vehicle footprint. Footprints are **arbitrary
+polygons** given in the body frame, and they live on the projector rather than the model — the
+kinematic models stay dimension-free. A polygon is counter-clockwise and not closed; an empty
+polygon (the default) means "unset", so the footprint comes back empty and projection proceeds
+normally. `rectangle_footprint(front_m, rear_m, width_m)` builds the boxy common case.
 
-| Projector | Pose reference | Footprint dimensions |
+For the bicycle and articulated models, poses and the body-frame footprint are both measured from
+an axle you choose with `AxleReference.FRONT` or `AxleReference.REAR`. A differential drive has one
+axle, so there is nothing to select.
+
+| Projector | Pose reference | Footprint |
 |---|---|---|
-| `DifferentialDriveProjector` | Body centre | `front_overhang_m`, `rear_overhang_m`, `body_width_m` |
-| `BicycleProjector` | Rear axle | `front_overhang_m` (= wheelbase + overhang past the front axle), `rear_overhang_m`, `body_width_m` |
-| `ArticulatedProjector` | Articulation joint (θ = rear-body heading) | `front_joint_to_bumper_m`, `front_body_width_m`, `rear_joint_to_bumper_m`, `rear_body_width_m` |
+| `DifferentialDriveProjector` | Body centre | One polygon in the body-centre frame |
+| `BicycleProjector` | Selected axle (`AxleReference`) | One polygon in the selected axle's frame |
+| `ArticulatedProjector` | Selected axle (`AxleReference`); θ is that axle's body heading | One polygon per body, **each in its own axle's frame** — the only anchoring that stays rigid as the joint articulates |
 
-Footprints are 4 corners, counter-clockwise, not closed. A body width of `0` (the default) means
-"unset": the footprint comes back empty and projection proceeds normally. See the
-[derivations](#derivations) for the per-model geometry and integration details.
+`ArticulatedProjector` also reports `joint_pose` on every sample, so the articulation joint
+(`base_link` for a ROS articulated vehicle) is available regardless of which axle you reference.
+See the [derivations](#derivations) for the per-model geometry and integration details.
 
 ```python
 projector = BicycleProjector(
     model=BicycleModel(wheelbase_m=2.7, track_width_m=1.6, wheel_radius_m=0.35),
     min_steering_angle_rad=-0.6,
     max_steering_angle_rad=0.6,
-    # Pose reference is the rear axle: front bumper 0.9 m past the 2.7 m front axle.
-    front_overhang_m=2.7 + 0.9,
-    rear_overhang_m=0.8,
-    body_width_m=1.8,
+    axle_reference=AxleReference.REAR,
+    # Measured from the rear axle: front bumper 0.9 m past the 2.7 m front axle, 0.8 m of tail.
+    footprint=rectangle_footprint(2.7 + 0.9, 0.8, 1.8),
 )
+
+# Or describe the same body from the front axle — the polygon moves with the reference:
+front_referenced = BicycleProjector(
+    model=BicycleModel(wheelbase_m=2.7, track_width_m=1.6, wheel_radius_m=0.35),
+    min_steering_angle_rad=-0.6,
+    max_steering_angle_rad=0.6,
+    axle_reference=AxleReference.FRONT,
+    footprint=rectangle_footprint(0.9, 2.7 + 0.8, 1.8),
+)
+
+# Any polygon works, not just rectangles — a tapered nose, for instance:
+tapered = [Point2D(-0.8, -0.9), Point2D(3.2, -0.9), Point2D(3.6, 0.0), Point2D(3.2, 0.9), Point2D(-0.8, 0.9)]
 
 # One-step advance
 result = projector.step(
@@ -259,6 +278,11 @@ projector = ArticulatedProjector(
     model=ArticulatedModel(1.66, 1.44, 2.0, 2.0, 0.723, 0.723),
     min_articulation_angle_rad=-0.785,
     max_articulation_angle_rad=0.785,
+    axle_reference=AxleReference.REAR,
+    # Front body about the FRONT axle: 1.0 m of bucket ahead, back to the joint 1.66 m behind.
+    front_footprint=rectangle_footprint(1.0, 1.66, 2.0),
+    # Rear body about the REAR axle: forward to the joint 1.44 m ahead, 0.8 m of counterweight.
+    rear_footprint=rectangle_footprint(1.44, 0.8, 2.0),
 )
 trajectory = projector.project(
     horizon_s=5.0, dt_s=0.05,
@@ -356,7 +380,9 @@ auto axles_with_rate = model.articulationToAxleVelocities(1.5, 0.3, 0.2);
 ```cpp
 polymath::kinematics::BicycleProjector projector(
     polymath::kinematics::BicycleModel(2.7, 1.6, 0.35),
-    -0.6, 0.6);  // min/max steering angle (rad)
+    -0.6, 0.6,                                            // min/max steering angle (rad)
+    polymath::kinematics::AxleReference::REAR,             // poses + footprint about the rear axle
+    polymath::kinematics::rectangleFootprint(3.6, 0.8, 1.8));  // front_m, rear_m, width_m
 
 polymath::kinematics::Pose2D pose{0.0, 0.0, 0.0};
 
@@ -440,9 +466,9 @@ auto diff_trajectory = diff_projector.project(
 
 | Class | Constructor | Notable methods |
 |---|---|---|
-| `BicycleProjector` | `(BicycleModel, min_steering, max_steering, [front_overhang, rear_overhang, body_width])` | `step(dt, pose, current, target, rate, v)`, `project(horizon, dt, pose, initial, target, rate, v)` |
-| `ArticulatedProjector` | `(ArticulatedModel, min_articulation, max_articulation, [front_joint_to_bumper, front_width, rear_joint_to_bumper, rear_width])` | `step(dt, pose, current, target, rate, v)`, `project(horizon, dt, pose, initial, target, rate, v)` |
-| `DifferentialDriveProjector` | `(DifferentialDriveModel, min_v, max_v, min_omega, max_omega, [front_overhang, rear_overhang, body_width])` | `step(dt, pose, current_v, current_omega, target_v, target_omega, accel, angular_accel)`, `project(horizon, dt, pose, initial_v, initial_omega, target_v, target_omega, accel, angular_accel)` |
+| `BicycleProjector` | `(BicycleModel, min_steering, max_steering, [axle_reference, footprint])` | `step(dt, pose, current, target, rate, v)`, `project(horizon, dt, pose, initial, target, rate, v)` |
+| `ArticulatedProjector` | `(ArticulatedModel, min_articulation, max_articulation, [axle_reference, front_footprint, rear_footprint])` | `step(dt, pose, current, target, rate, v)`, `project(horizon, dt, pose, initial, target, rate, v)` |
+| `DifferentialDriveProjector` | `(DifferentialDriveModel, min_v, max_v, min_omega, max_omega, [footprint])` | `step(dt, pose, current_v, current_omega, target_v, target_omega, accel, angular_accel)`, `project(horizon, dt, pose, initial_v, initial_omega, target_v, target_omega, accel, angular_accel)` |
 
 All three clamp the target to its `[min, max]` bounds before ramping, then advance toward the clamped target at the given rate or acceleration (never overshooting), and integrate pose with Euler using the heading at the start of each step. `project()` returns `ceil(horizon / dt) + 1` samples, with the initial state as element 0.
 

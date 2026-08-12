@@ -211,9 +211,16 @@ Computing `bodyVelocityToVehicleState(v, omega)` to get $\gamma$, then feeding t
 `ArticulatedProjector` wraps this model to roll a pose forward in time under a rate-limited
 articulation joint.
 
-**Pose reference.** The public pose is the **articulation joint** (`base_link`), and
-$\theta$ is the **rear-body heading**. The front body is rotated relative to it by
-$\gamma$, matching the $\theta_f = \theta_r + \gamma$ convention above.
+**Pose reference.** Poses are measured at whichever axle the caller selects
+(`AxleReference::FRONT` or `REAR`), and $\theta$ is the heading of the body that axle belongs to —
+$\theta_r$ for a REAR reference, $\theta_f = \theta_r + \gamma$ for a FRONT one. Motion is always
+integrated at the rear axle. The conversions chain through the joint:
+
+$$\mathbf{p}^{\text{joint}} = \mathbf{p}^{\text{rear}} + L_r\begin{bmatrix}\cos\theta_r\\\sin\theta_r\end{bmatrix}, \qquad \mathbf{p}^{\text{front}} = \mathbf{p}^{\text{joint}} + L_f\begin{bmatrix}\cos\theta_f\\\sin\theta_f\end{bmatrix}$$
+
+Every sample also reports `joint_pose` (position of the joint, $\theta = \theta_r$), so the
+articulation joint — `base_link` for a ROS articulated vehicle — is available whichever axle is
+referenced.
 
 **Per step**, given $\Delta t$, the current angle $\gamma_k$, a target $\gamma^\*$, a rate
 limit $\dot{\gamma}_{\max}$, and a commanded $v$:
@@ -241,17 +248,27 @@ element 0 so plots have a clean $t = 0$ anchor.
 
 ### Footprints
 
-The projector optionally emits a body polygon per sample, keeping the kinematic model itself
-dimension-free. Both bodies are measured from the joint to their bumper:
-$\text{joint-to-bumper} = \text{joint-to-axle} + \text{overhang}$, so a positive rear overhang
-extends the body behind the rear axle (counterweight) and a positive front overhang ahead of
-the front axle (bucket).
+The projector optionally emits one polygon per body, keeping the kinematic model itself
+dimension-free. Each is an **arbitrary polygon** supplied in the frame of **its own axle**: the front
+polygon about the front axle with $+x$ along $\theta_f$, the rear polygon about the rear axle with
+$+x$ along $\theta_r$.
 
-Each polygon is 4 corners, counter-clockwise, **not** closed (the first corner is not repeated).
-The front body is ordered [joint-right, bumper-right, bumper-left, joint-left] and the rear body
-[bumper-right, joint-right, joint-left, bumper-left], so the joint is recoverable as the
-midpoint of the two joint-side corners. A body width of $0$ or less means "unset": the footprint
-comes back empty and projection proceeds normally rather than throwing.
+Anchoring each body at its own axle is the only choice that stays rigid as the joint articulates. A
+polygon measured from the *other* body's axle would have to be re-measured for every value of
+$\gamma$, since the two bodies rotate relative to one another about the joint — so a fixed polygon
+in that frame would only be correct at one articulation angle.
+
+The joint sits $L_f$ behind the front axle and $L_r$ ahead of the rear axle, so a loader with $f$ of
+bucket ahead of the front axle and $r$ of counterweight behind the rear axle is described as:
+
+| Body | Forward extent | Rearward extent |
+|---|---|---|
+| Front (about front axle) | $f$ | $L_f$ (back to the joint) |
+| Rear (about rear axle) | $L_r$ (forward to the joint) | $r$ |
+
+`rectangleFootprint(front_m, rear_m, width_m)` builds the boxy case, ordered counter-clockwise and
+open. An empty polygon means "unset": that body's footprint comes back empty and projection proceeds
+normally rather than throwing.
 
 ---
 
