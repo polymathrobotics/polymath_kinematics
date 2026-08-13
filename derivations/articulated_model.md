@@ -18,7 +18,7 @@ A vehicle with two rigid sections connected by a central pivot (the articulation
 - $v$ — forward linear velocity of the vehicle (positive = forward)
 - $\omega$ — yaw rate of the body (positive = counter-clockwise / left turn)
 - $\gamma$ — articulation angle between front and rear sections (positive = left turn, counterclockwise)
-- $\dot{\gamma}$ — articulation angle rate of change (currently fixed at $0$ in the implementation; placeholder for future estimation)
+- $\dot{\gamma}$ — articulation angle rate of change. Supplied by the caller; the two-argument overloads of `bodyVelocityToVehicleState` / `articulationToAxleVelocities` assume steady articulation ($\dot{\gamma} = 0$)
 - $\theta_f$ — heading angle of the front body
 - $\theta_r$ — heading angle of the rear body
 
@@ -206,9 +206,73 @@ Computing `bodyVelocityToVehicleState(v, omega)` to get $\gamma$, then feeding t
 
 ---
 
-## Future work
+## Forward projection (`ArticulatedProjector`)
 
-The $\dot{\gamma}$ term is currently hardcoded to $0$. Once articulation angle rate estimation is available (e.g., from an IMU or joint encoder derivative), it will be incorporated to improve accuracy during transient steering maneuvers.
+`ArticulatedProjector` wraps this model to roll a pose forward in time under a rate-limited
+articulation joint.
+
+**Pose reference.** Poses are measured at whichever axle the caller selects
+(`AxleReference::FRONT` or `REAR`), and $\theta$ is the heading of the body that axle belongs to —
+$\theta_r$ for a REAR reference, $\theta_f = \theta_r + \gamma$ for a FRONT one. Motion is always
+integrated at the rear axle. The conversions chain through the joint:
+
+$$\mathbf{p}^{\text{joint}} = \mathbf{p}^{\text{rear}} + L_r\begin{bmatrix}\cos\theta_r\\\sin\theta_r\end{bmatrix}, \qquad \mathbf{p}^{\text{front}} = \mathbf{p}^{\text{joint}} + L_f\begin{bmatrix}\cos\theta_f\\\sin\theta_f\end{bmatrix}$$
+
+Every sample also reports `joint_pose` (position of the joint, $\theta = \theta_r$), so the
+articulation joint — `base_link` for a ROS articulated vehicle — is available whichever axle is
+referenced.
+
+**Per step**, given $\Delta t$, the current angle $\gamma_k$, a target $\gamma^\*$, a rate
+limit $\dot{\gamma}_{\max}$, and a commanded $v$:
+
+1. **Clamp then ramp.** The target is first clamped to the joint's mechanical limits, then the
+   angle advances toward it without overshooting:
+   $$\gamma_{k+1} = \gamma_k + \operatorname{clamp}\!\left(\operatorname{clamp}(\gamma^\*,\, \gamma_{\min},\, \gamma_{\max}) - \gamma_k,\; -\dot{\gamma}_{\max}\Delta t,\; +\dot{\gamma}_{\max}\Delta t\right)$$
+   Clamping before ramping means an out-of-range command saturates at the limit rather than
+   oscillating around it.
+2. **Realized rate.** $\dot{\gamma}_k = (\gamma_{k+1} - \gamma_k)/\Delta t$, which falls to $0$
+   once the angle pins at the target. This value — not the rate limit — is fed into the
+   kinematics above, so the $\dot{\gamma}$ term is exercised during the ramp and vanishes at
+   steady state.
+3. **Integrate at the rear axle.** Because $\omega$ here is the rear-axle turning velocity, the
+   joint pose is converted back to the rear axle, Euler-stepped, and converted forward again:
+   $$\mathbf{p}^{\text{rear}}_k = \mathbf{p}_k - L_r\begin{bmatrix}\cos\theta_k\\\sin\theta_k\end{bmatrix}, \qquad \mathbf{p}^{\text{rear}}_{k+1} = \mathbf{p}^{\text{rear}}_k + v\begin{bmatrix}\cos\theta_k\\\sin\theta_k\end{bmatrix}\Delta t$$
+   $$\theta_{k+1} = \operatorname{wrap}(\theta_k + \omega_k \Delta t), \qquad \mathbf{p}_{k+1} = \mathbf{p}^{\text{rear}}_{k+1} + L_r\begin{bmatrix}\cos\theta_{k+1}\\\sin\theta_{k+1}\end{bmatrix}$$
+   The heading is taken at the *start* of the step (explicit Euler). Integrating at the joint
+   directly would trace the wrong arc, since the joint is not the point that moves along the
+   body's velocity vector.
+
+`project(horizon, dt, ...)` repeats this for $\lceil \text{horizon}/\Delta t \rceil$ steps and
+returns $\lceil \text{horizon}/\Delta t \rceil + 1$ samples, with the initial state seeded as
+element 0 so plots have a clean $t = 0$ anchor.
+
+### Footprints
+
+The projector optionally emits one polygon per body, keeping the kinematic model itself
+dimension-free. Each is an **arbitrary polygon** supplied in the frame of **its own axle**: the front
+polygon about the front axle with $+x$ along $\theta_f$, the rear polygon about the rear axle with
+$+x$ along $\theta_r$.
+
+Anchoring each body at its own axle is the only choice that stays rigid as the joint articulates. A
+polygon measured from the *other* body's axle would have to be re-measured for every value of
+$\gamma$, since the two bodies rotate relative to one another about the joint — so a fixed polygon
+in that frame would only be correct at one articulation angle.
+
+The joint sits $L_f$ behind the front axle and $L_r$ ahead of the rear axle, so a loader with $f$ of
+bucket ahead of the front axle and $r$ of counterweight behind the rear axle is described as:
+
+| Body | Forward extent | Rearward extent |
+|---|---|---|
+| Front (about front axle) | $f$ | $L_f$ (back to the joint) |
+| Rear (about rear axle) | $L_r$ (forward to the joint) | $r$ |
+
+`rectangleFootprint(front_m, rear_m, width_m)` builds the boxy case, ordered counter-clockwise and
+open. An empty polygon means "unset": that body's footprint comes back empty and projection proceeds
+normally rather than throwing.
+
+---
+
+## Future work
 
 Add diagrams to the readme for visualization
 
