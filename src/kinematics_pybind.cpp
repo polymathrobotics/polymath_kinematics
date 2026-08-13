@@ -55,14 +55,16 @@ PYBIND11_MODULE(polymath_kinematics_cpp, m)
       py::arg("rear_wheel_radius_m"))
     .def(
       "body_velocity_to_vehicle_state",
-      &ArticulatedModel::bodyVelocityToVehicleState,
+      py::overload_cast<double, double, double>(&ArticulatedModel::bodyVelocityToVehicleState),
       py::arg("linear_velocity_m_s"),
-      py::arg("angular_velocity_rad_s"))
+      py::arg("angular_velocity_rad_s"),
+      py::arg("articulation_turning_velocity_rad_s") = 0.0)
     .def(
       "articulation_to_axle_velocities",
-      &ArticulatedModel::articulationToAxleVelocities,
+      py::overload_cast<double, double, double>(&ArticulatedModel::articulationToAxleVelocities),
       py::arg("linear_velocity_m_s"),
-      py::arg("articulation_angle_rad"))
+      py::arg("articulation_angle_rad"),
+      py::arg("articulation_turning_velocity_rad_s") = 0.0)
     .def_property_readonly("articulation_to_front_axle", &ArticulatedModel::get_articulation_to_front_axle_m)
     .def_property_readonly("articulation_to_rear_axle", &ArticulatedModel::get_articulation_to_rear_axle_m)
     .def_property_readonly("front_track_width", &ArticulatedModel::get_front_track_width_m)
