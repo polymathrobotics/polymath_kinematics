@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-cmake_minimum_required(VERSION 3.8)
+cmake_minimum_required(VERSION 3.15)
 project(polymath_kinematics)
 
 if(NOT CMAKE_CXX_STANDARD)
@@ -20,7 +20,6 @@ if(NOT CMAKE_CXX_STANDARD)
 endif()
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic -Werror)
-  add_link_options(-Wl,-no-undefined)
 endif()
 
 # Ubuntu detection (override with -DBUILD_JAMMY=ON/OFF)
@@ -43,15 +42,21 @@ if(NOT DEFINED BUILD_JAMMY)
   endif()
 endif()
 
-# Find packages
-find_package(ament_cmake REQUIRED)
-find_package(ament_cmake_python REQUIRED)
+# Find packages. ament_cmake is QUIET so the wheel build (no ROS2) falls
+# through to a plain CMake configuration.
+find_package(ament_cmake QUIET)
 find_package(Python3 REQUIRED COMPONENTS Interpreter Development.Module)
-find_package(pybind11_vendor REQUIRED)
-find_package(pybind11 REQUIRED)
+find_package(pybind11 CONFIG REQUIRED)
 
-# C++ library with all kinematic models
-add_library(polymath_kinematics SHARED
+# C++ library with all kinematic models. SHARED under ROS2 (ament exports a
+# linkable .so to downstream packages); STATIC under wheel builds so the
+# pybind11 module is self-contained and the wheel ships a single .so.
+if(ament_cmake_FOUND)
+  set(_polymath_kinematics_lib_type SHARED)
+else()
+  set(_polymath_kinematics_lib_type STATIC)
+endif()
+add_library(polymath_kinematics ${_polymath_kinematics_lib_type}
   src/articulated_model.cpp
   src/articulated_projector.cpp
   src/bicycle_model.cpp
@@ -63,41 +68,37 @@ target_include_directories(polymath_kinematics PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
 )
+set_target_properties(polymath_kinematics PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 # Python bindings
-set(PYBIND_TARGET polymath_kinematics_cpp)
-pybind11_add_module(${PYBIND_TARGET}
-  src/kinematics_pybind.cpp
-)
-set_target_properties(${PYBIND_TARGET} PROPERTIES LINK_OPTIONS "")
-target_link_libraries(${PYBIND_TARGET} PRIVATE polymath_kinematics)
-_ament_cmake_python_register_environment_hook()
-install(TARGETS ${PYBIND_TARGET} DESTINATION "${PYTHON_INSTALL_DIR}")
+pybind11_add_module(polymath_kinematics_cpp src/kinematics_pybind.cpp)
+target_link_libraries(polymath_kinematics_cpp PRIVATE polymath_kinematics)
 
-# Install C++ library
-install(
-  TARGETS polymath_kinematics
-  EXPORT ${PROJECT_NAME}_TARGETS
-  ARCHIVE DESTINATION lib
-  LIBRARY DESTINATION lib
-  RUNTIME DESTINATION lib/${PROJECT_NAME}
-)
-install(
-  EXPORT ${PROJECT_NAME}_TARGETS
-  NAMESPACE ${PROJECT_NAME}::
-  DESTINATION share/${PROJECT_NAME}/cmake
-)
-install(
-  DIRECTORY include/
-  DESTINATION include/
-)
+if(ament_cmake_FOUND)
+  find_package(ament_cmake_python REQUIRED)
 
-# Python module
-ament_python_install_package(${PROJECT_NAME})
+  install(
+    TARGETS polymath_kinematics
+    EXPORT ${PROJECT_NAME}_TARGETS
+    ARCHIVE DESTINATION lib
+    LIBRARY DESTINATION lib
+    RUNTIME DESTINATION lib/${PROJECT_NAME}
+  )
+  install(
+    EXPORT ${PROJECT_NAME}_TARGETS
+    NAMESPACE ${PROJECT_NAME}::
+    DESTINATION share/${PROJECT_NAME}/cmake
+  )
+  install(DIRECTORY include/ DESTINATION include/)
 
-# Testing
+  ament_python_install_package(${PROJECT_NAME})
+  install(TARGETS polymath_kinematics_cpp DESTINATION "${PYTHON_INSTALL_DIR}")
+else()
+  # Wheel build: scikit-build-core installs the extension at the wheel root.
+  install(TARGETS polymath_kinematics_cpp DESTINATION .)
+endif()
+
 if(BUILD_TESTING)
-  find_package(ament_cmake_pytest REQUIRED)
   include(CTest)
 
   if(BUILD_JAMMY)
@@ -126,12 +127,16 @@ if(BUILD_TESTING)
   add_kinematics_catch2_test(test_bicycle_projector test/test_bicycle_projector.cpp)
   add_kinematics_catch2_test(test_articulated_projector test/test_articulated_projector.cpp)
   add_kinematics_catch2_test(test_differential_drive_projector test/test_differential_drive_projector.cpp)
-  ament_add_pytest_test(test_python_bindings test)
+
+  if(ament_cmake_FOUND)
+    find_package(ament_cmake_pytest REQUIRED)
+    ament_add_pytest_test(test_python_bindings test)
+  endif()
 endif()
 
-# Export targets
-ament_export_targets(${PROJECT_NAME}_TARGETS HAS_LIBRARY_TARGET)
-ament_export_include_directories(include)
-ament_export_libraries(polymath_kinematics)
-
-ament_package()
+if(ament_cmake_FOUND)
+  ament_export_targets(${PROJECT_NAME}_TARGETS HAS_LIBRARY_TARGET)
+  ament_export_include_directories(include)
+  ament_export_libraries(polymath_kinematics)
+  ament_package()
+endif()

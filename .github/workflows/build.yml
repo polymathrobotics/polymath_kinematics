@@ -27,11 +27,30 @@ jobs:
       ROS_DISTRO: ${{ matrix.ros }}
       PIP_BREAK_SYSTEM_PACKAGES: 1
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: ros-tooling/action-ros-ci@v0.4
         with:
           target-ros2-distro: ${{ matrix.ros }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: colcon-logs-${{ matrix.ros }}
           path: ros_ws/log
+
+  standalone_cmake:
+    runs-on: ubuntu-latest
+    name: Standalone CMake + ctest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake g++ catch2 pybind11-dev python3-dev
+      - name: Configure
+        # CMAKE_DISABLE_FIND_PACKAGE_ament_cmake forces the non-ament branch.
+        run: >
+          cmake -S . -B build -DBUILD_TESTING=ON
+          -DCMAKE_DISABLE_FIND_PACKAGE_ament_cmake=ON
+      - name: Build
+        run: cmake --build build -j
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
