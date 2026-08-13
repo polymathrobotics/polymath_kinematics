@@ -133,6 +133,9 @@ if(BUILD_TESTING)
     ament_add_pytest_test(test_python_bindings test/test_python_bindings.py
       WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
     )
+    ament_add_pytest_test(test_explorer test/test_explorer.py
+      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    )
   endif()
 endif()
 
