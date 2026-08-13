@@ -13,9 +13,14 @@
 // limitations under the License.
 
 #include "polymath_kinematics/articulated_model.hpp"
+#include "polymath_kinematics/articulated_projector.hpp"
 #include "polymath_kinematics/bicycle_model.hpp"
+#include "polymath_kinematics/bicycle_projector.hpp"
 #include "polymath_kinematics/differential_drive_model.hpp"
+#include "polymath_kinematics/differential_drive_projector.hpp"
+#include "polymath_kinematics/pose2d.hpp"
 #include "pybind11/pybind11.h"
+#include "pybind11/stl.h"
 
 namespace py = pybind11;
 
@@ -132,6 +137,186 @@ PYBIND11_MODULE(polymath_kinematics_cpp, m)
     .def_property_readonly("wheelbase", &BicycleModel::get_wheelbase_m)
     .def_property_readonly("track_width", &BicycleModel::get_track_width_m)
     .def_property_readonly("wheel_radius", &BicycleModel::get_wheel_radius_m);
+
+  // Shared Pose2D
+  py::class_<Pose2D>(m, "Pose2D")
+    .def(py::init<>())
+    .def(
+      py::init([](double x, double y, double theta) { return Pose2D{x, y, theta}; }),
+      py::arg("x") = 0.0,
+      py::arg("y") = 0.0,
+      py::arg("theta") = 0.0)
+    .def_readwrite("x", &Pose2D::x)
+    .def_readwrite("y", &Pose2D::y)
+    .def_readwrite("theta", &Pose2D::theta);
+
+  // Shared Point2D (footprint polygon vertex). Footprint = std::vector<Point2D> binds to a
+  // Python list of Point2D via pybind11/stl.h.
+  py::class_<Point2D>(m, "Point2D")
+    .def(py::init<>())
+    .def(py::init([](double x, double y) { return Point2D{x, y}; }), py::arg("x") = 0.0, py::arg("y") = 0.0)
+    .def_readwrite("x", &Point2D::x)
+    .def_readwrite("y", &Point2D::y);
+
+  py::enum_<AxleReference>(m, "AxleReference", "Which axle a projector's poses and footprint are measured from.")
+    .value("FRONT", AxleReference::FRONT)
+    .value("REAR", AxleReference::REAR);
+
+  m.def(
+    "rectangle_footprint",
+    &rectangleFootprint,
+    py::arg("front_m"),
+    py::arg("rear_m"),
+    py::arg("width_m"),
+    "Build a rectangular body-frame footprint (CCW, open): rear-right, front-right, front-left, rear-left.");
+
+  m.def(
+    "transform_footprint",
+    &transformFootprint,
+    py::arg("body_frame"),
+    py::arg("pose"),
+    "Transform a body-frame footprint into the world frame by `pose`.");
+
+  // Bicycle projector bindings
+  py::class_<BicycleProjectedState>(m, "BicycleProjectedState")
+    .def(py::init<>())
+    .def_readwrite("time_s", &BicycleProjectedState::time_s)
+    .def_readwrite("pose", &BicycleProjectedState::pose)
+    .def_readwrite("steering_angle_rad", &BicycleProjectedState::steering_angle_rad)
+    .def_readwrite("linear_velocity_m_s", &BicycleProjectedState::linear_velocity_m_s)
+    .def_readwrite("angular_velocity_rad_s", &BicycleProjectedState::angular_velocity_rad_s)
+    .def_readwrite("steering_state", &BicycleProjectedState::steering_state)
+    .def_readwrite("footprint", &BicycleProjectedState::footprint);
+
+  py::class_<BicycleProjector>(m, "BicycleProjector")
+    .def(
+      py::init<BicycleModel, double, double, AxleReference, Footprint>(),
+      py::arg("model"),
+      py::arg("min_steering_angle_rad"),
+      py::arg("max_steering_angle_rad"),
+      py::arg("axle_reference") = AxleReference::REAR,
+      py::arg("footprint") = Footprint{})
+    .def(
+      "step",
+      &BicycleProjector::step,
+      py::arg("dt_s"),
+      py::arg("current_pose"),
+      py::arg("current_steering_angle_rad"),
+      py::arg("target_steering_angle_rad"),
+      py::arg("steering_rate_rad_s"),
+      py::arg("linear_velocity_m_s"))
+    .def(
+      "project",
+      &BicycleProjector::project,
+      py::arg("horizon_s"),
+      py::arg("dt_s"),
+      py::arg("initial_pose"),
+      py::arg("initial_steering_angle_rad"),
+      py::arg("target_steering_angle_rad"),
+      py::arg("steering_rate_rad_s"),
+      py::arg("linear_velocity_m_s"))
+    .def_property_readonly("model", &BicycleProjector::get_model, py::return_value_policy::reference_internal)
+    .def_property_readonly("min_steering_angle_rad", &BicycleProjector::get_min_steering_angle_rad)
+    .def_property_readonly("max_steering_angle_rad", &BicycleProjector::get_max_steering_angle_rad)
+    .def_property_readonly("axle_reference", &BicycleProjector::get_axle_reference)
+    .def_property_readonly("footprint", &BicycleProjector::get_footprint);
+
+  // Articulated projector bindings
+  py::class_<ArticulatedProjectedState>(m, "ArticulatedProjectedState")
+    .def(py::init<>())
+    .def_readwrite("time_s", &ArticulatedProjectedState::time_s)
+    .def_readwrite("pose", &ArticulatedProjectedState::pose)
+    .def_readwrite("articulation_angle_rad", &ArticulatedProjectedState::articulation_angle_rad)
+    .def_readwrite("linear_velocity_m_s", &ArticulatedProjectedState::linear_velocity_m_s)
+    .def_readwrite("angular_velocity_rad_s", &ArticulatedProjectedState::angular_velocity_rad_s)
+    .def_readwrite("vehicle_state", &ArticulatedProjectedState::vehicle_state)
+    .def_readwrite("joint_pose", &ArticulatedProjectedState::joint_pose)
+    .def_readwrite("front_footprint", &ArticulatedProjectedState::front_footprint)
+    .def_readwrite("rear_footprint", &ArticulatedProjectedState::rear_footprint);
+
+  py::class_<ArticulatedProjector>(m, "ArticulatedProjector")
+    .def(
+      py::init<ArticulatedModel, double, double, AxleReference, Footprint, Footprint>(),
+      py::arg("model"),
+      py::arg("min_articulation_angle_rad"),
+      py::arg("max_articulation_angle_rad"),
+      py::arg("axle_reference") = AxleReference::REAR,
+      py::arg("front_footprint") = Footprint{},
+      py::arg("rear_footprint") = Footprint{})
+    .def(
+      "step",
+      &ArticulatedProjector::step,
+      py::arg("dt_s"),
+      py::arg("current_pose"),
+      py::arg("current_articulation_angle_rad"),
+      py::arg("target_articulation_angle_rad"),
+      py::arg("articulation_rate_rad_s"),
+      py::arg("linear_velocity_m_s"))
+    .def(
+      "project",
+      &ArticulatedProjector::project,
+      py::arg("horizon_s"),
+      py::arg("dt_s"),
+      py::arg("initial_pose"),
+      py::arg("initial_articulation_angle_rad"),
+      py::arg("target_articulation_angle_rad"),
+      py::arg("articulation_rate_rad_s"),
+      py::arg("linear_velocity_m_s"))
+    .def_property_readonly("model", &ArticulatedProjector::get_model, py::return_value_policy::reference_internal)
+    .def_property_readonly("min_articulation_angle_rad", &ArticulatedProjector::get_min_articulation_angle_rad)
+    .def_property_readonly("max_articulation_angle_rad", &ArticulatedProjector::get_max_articulation_angle_rad)
+    .def_property_readonly("axle_reference", &ArticulatedProjector::get_axle_reference)
+    .def_property_readonly("front_footprint", &ArticulatedProjector::get_front_footprint)
+    .def_property_readonly("rear_footprint", &ArticulatedProjector::get_rear_footprint);
+
+  // Differential drive projector bindings
+  py::class_<DifferentialDriveProjectedState>(m, "DifferentialDriveProjectedState")
+    .def(py::init<>())
+    .def_readwrite("time_s", &DifferentialDriveProjectedState::time_s)
+    .def_readwrite("pose", &DifferentialDriveProjectedState::pose)
+    .def_readwrite("linear_velocity_m_s", &DifferentialDriveProjectedState::linear_velocity_m_s)
+    .def_readwrite("angular_velocity_rad_s", &DifferentialDriveProjectedState::angular_velocity_rad_s)
+    .def_readwrite("wheel_velocities", &DifferentialDriveProjectedState::wheel_velocities)
+    .def_readwrite("footprint", &DifferentialDriveProjectedState::footprint);
+
+  py::class_<DifferentialDriveProjector>(m, "DifferentialDriveProjector")
+    .def(
+      py::init<DifferentialDriveModel, double, double, double, double, Footprint>(),
+      py::arg("model"),
+      py::arg("min_linear_velocity_m_s"),
+      py::arg("max_linear_velocity_m_s"),
+      py::arg("min_angular_velocity_rad_s"),
+      py::arg("max_angular_velocity_rad_s"),
+      py::arg("footprint") = Footprint{})
+    .def(
+      "step",
+      &DifferentialDriveProjector::step,
+      py::arg("dt_s"),
+      py::arg("current_pose"),
+      py::arg("current_linear_velocity_m_s"),
+      py::arg("current_angular_velocity_rad_s"),
+      py::arg("target_linear_velocity_m_s"),
+      py::arg("target_angular_velocity_rad_s"),
+      py::arg("linear_acceleration_m_s2"),
+      py::arg("angular_acceleration_rad_s2"))
+    .def(
+      "project",
+      &DifferentialDriveProjector::project,
+      py::arg("horizon_s"),
+      py::arg("dt_s"),
+      py::arg("initial_pose"),
+      py::arg("initial_linear_velocity_m_s"),
+      py::arg("initial_angular_velocity_rad_s"),
+      py::arg("target_linear_velocity_m_s"),
+      py::arg("target_angular_velocity_rad_s"),
+      py::arg("linear_acceleration_m_s2"),
+      py::arg("angular_acceleration_rad_s2"))
+    .def_property_readonly("model", &DifferentialDriveProjector::get_model, py::return_value_policy::reference_internal)
+    .def_property_readonly("min_linear_velocity_m_s", &DifferentialDriveProjector::get_min_linear_velocity_m_s)
+    .def_property_readonly("max_linear_velocity_m_s", &DifferentialDriveProjector::get_max_linear_velocity_m_s)
+    .def_property_readonly("min_angular_velocity_rad_s", &DifferentialDriveProjector::get_min_angular_velocity_rad_s)
+    .def_property_readonly("max_angular_velocity_rad_s", &DifferentialDriveProjector::get_max_angular_velocity_rad_s)
+    .def_property_readonly("footprint", &DifferentialDriveProjector::get_footprint);
 }
 
 }  // namespace polymath::kinematics

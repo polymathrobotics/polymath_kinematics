@@ -130,7 +130,9 @@ if(BUILD_TESTING)
 
   if(ament_cmake_FOUND)
     find_package(ament_cmake_pytest REQUIRED)
-    ament_add_pytest_test(test_python_bindings test)
+    ament_add_pytest_test(test_python_bindings test/test_python_bindings.py
+      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    )
   endif()
 endif()
 
