@@ -40,7 +40,6 @@ struct ArticulatedAxleVelocities
 };
 
 /// @brief Kinematic model for articulated vehicles (e.g., wheel loaders, articulated dump trucks)
-/// @note TODO: (Zeerek) We want to add articulated angle turning velocity into our estimations
 class ArticulatedModel
 {
 public:
@@ -68,16 +67,35 @@ public:
   ~ArticulatedModel() = default;
 
   /// @brief Convert body velocity to vehicle state (articulation angle and wheel speeds)
+  /// Convenience overload that assumes a zero articulation turning velocity (steady articulation).
   /// @param linear_velocity_m_s Desired linear velocity in m/s
   /// @param angular_velocity_rad_s Desired angular velocity in rad/s
   /// @return Vehicle state including required articulation angle and wheel speeds
   ArticulatedVehicleState bodyVelocityToVehicleState(double linear_velocity_m_s, double angular_velocity_rad_s);
 
+  /// @brief Convert body velocity to vehicle state, including the effect of the articulation joint
+  /// turning velocity (gamma-dot).
+  /// @param linear_velocity_m_s Desired linear velocity in m/s
+  /// @param angular_velocity_rad_s Desired angular velocity in rad/s
+  /// @param articulation_turning_velocity_rad_s Rate of change of the articulation angle in rad/s
+  /// @return Vehicle state including required articulation angle and wheel speeds
+  ArticulatedVehicleState bodyVelocityToVehicleState(
+    double linear_velocity_m_s, double angular_velocity_rad_s, double articulation_turning_velocity_rad_s);
+
   /// @brief Convert articulation state to axle turning velocities
+  /// Convenience overload that assumes a zero articulation turning velocity (steady articulation).
   /// @param linear_velocity_m_s Current linear velocity in m/s
   /// @param articulation_angle_rad Current articulation angle in radians
   /// @return Axle turning velocities for front and rear axles
   ArticulatedAxleVelocities articulationToAxleVelocities(double linear_velocity_m_s, double articulation_angle_rad);
+
+  /// @brief Convert articulation state to axle turning velocities, including gamma-dot
+  /// @param linear_velocity_m_s Current linear velocity in m/s
+  /// @param articulation_angle_rad Current articulation angle in radians
+  /// @param articulation_turning_velocity_rad_s Rate of change of the articulation angle in rad/s
+  /// @return Axle turning velocities for front and rear axles
+  ArticulatedAxleVelocities articulationToAxleVelocities(
+    double linear_velocity_m_s, double articulation_angle_rad, double articulation_turning_velocity_rad_s);
 
   double get_articulation_to_front_axle_m() const
   {
@@ -116,10 +134,6 @@ private:
   double rear_track_width_m_;
   double front_wheel_radius_m_;
   double rear_wheel_radius_m_;
-
-  /// @brief Articulation turning velocity once calculated or available
-  /// TODO: (Zeerek) Add ability to pass this in when generating estimations
-  static constexpr double articulation_turning_velocity_rad_s_ = 0.0;
 
   /// @brief Threshold below which a velocity is treated as zero to avoid numerical
   /// singularities (e.g. 0/0 in acos, or inf*0 in wheel speed calculations)

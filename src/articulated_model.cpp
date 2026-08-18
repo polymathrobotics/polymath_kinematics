@@ -24,6 +24,12 @@ namespace polymath::kinematics
 ArticulatedVehicleState ArticulatedModel::bodyVelocityToVehicleState(
   double linear_velocity_m_s, double angular_velocity_rad_s)
 {
+  return bodyVelocityToVehicleState(linear_velocity_m_s, angular_velocity_rad_s, 0.0);
+}
+
+ArticulatedVehicleState ArticulatedModel::bodyVelocityToVehicleState(
+  double linear_velocity_m_s, double angular_velocity_rad_s, double articulation_turning_velocity_rad_s)
+{
   // Guard: fully stationary — sqrt denominator collapses to 0, producing 0/0 = NaN
   if (
     std::abs(linear_velocity_m_s) < ZERO_VELOCITY_THRESHOLD &&
@@ -51,7 +57,7 @@ ArticulatedVehicleState ArticulatedModel::bodyVelocityToVehicleState(
   // Clamp keeps the arccos argument in [-1, 1] for over-tight commands; see the "Feasibility of
   // the arccos argument (clamping)" section in derivations/articulated_model.md.
   const double acos_argument = std::clamp(
-    articulation_to_rear_axle_m_ * (articulation_turning_velocity_rad_s_ - angular_velocity_rad_s) /
+    articulation_to_rear_axle_m_ * (articulation_turning_velocity_rad_s - angular_velocity_rad_s) /
       std::hypot(angular_velocity_rad_s * articulation_to_front_axle_m_, linear_velocity_m_s),
     -1.0,
     1.0);
@@ -93,12 +99,18 @@ ArticulatedVehicleState ArticulatedModel::bodyVelocityToVehicleState(
 ArticulatedAxleVelocities ArticulatedModel::articulationToAxleVelocities(
   double linear_velocity_m_s, double articulation_angle_rad)
 {
+  return articulationToAxleVelocities(linear_velocity_m_s, articulation_angle_rad, 0.0);
+}
+
+ArticulatedAxleVelocities ArticulatedModel::articulationToAxleVelocities(
+  double linear_velocity_m_s, double articulation_angle_rad, double articulation_turning_velocity_rad_s)
+{
   double front_axle_turning_velocity =
     (linear_velocity_m_s * std::sin(articulation_angle_rad) +
-     articulation_to_rear_axle_m_ * articulation_turning_velocity_rad_s_) /
+     articulation_to_rear_axle_m_ * articulation_turning_velocity_rad_s) /
     (articulation_to_front_axle_m_ * std::cos(articulation_angle_rad) + articulation_to_rear_axle_m_);
 
-  double rear_axle_turning_velocity = front_axle_turning_velocity - articulation_turning_velocity_rad_s_;
+  double rear_axle_turning_velocity = front_axle_turning_velocity - articulation_turning_velocity_rad_s;
 
   return ArticulatedAxleVelocities{linear_velocity_m_s, front_axle_turning_velocity, rear_axle_turning_velocity};
 }
