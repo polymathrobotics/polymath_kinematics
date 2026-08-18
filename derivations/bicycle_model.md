@@ -89,5 +89,58 @@ $$\omega_{\text{fr}} = \frac{\omega \cdot \operatorname{copysign}\!\left(\sqrt{(
 | $\omega \approx 0,\; v \neq 0$ | Straight line. All wheels spin at $v / r$ |
 | $\|R\| < W/2$ | ICR between rear wheels. Inner wheel reverses direction (handled by $\operatorname{copysign}$) |
 
+## Forward projection (`BicycleProjector`)
+
+`BicycleProjector` wraps this model to roll a pose forward in time under a rate-limited steering
+actuator.
+
+**Pose reference.** Poses are measured at whichever axle the caller selects
+(`AxleReference::FRONT` or `REAR`). Motion is always integrated at the **rear axle**, the classic
+bicycle reference and the point that travels along the body velocity vector. Because the chassis is
+one rigid body, both axles share the heading $\theta$, so a FRONT reference is a pure longitudinal
+offset applied on input and output:
+
+$$\mathbf{p}^{\text{front}} = \mathbf{p}^{\text{rear}} + L\begin{bmatrix}\cos\theta\\\sin\theta\end{bmatrix}$$
+
+**Per step**, given $\Delta t$, the current angle $\delta_k$, a target $\delta^\*$, a rate limit
+$\dot{\delta}_{\max}$, and a commanded $v$:
+
+1. **Clamp then ramp.** The target is clamped to the actuator's limits first, then the angle
+   advances toward it without overshooting:
+   $$\delta_{k+1} = \delta_k + \operatorname{clamp}\!\left(\operatorname{clamp}(\delta^\*,\, \delta_{\min},\, \delta_{\max}) - \delta_k,\; -\dot{\delta}_{\max}\Delta t,\; +\dot{\delta}_{\max}\Delta t\right)$$
+   Clamping before ramping means an out-of-range command saturates at the limit rather than
+   oscillating around it.
+2. **Forward kinematics** with the post-ramp angle gives the body yaw rate:
+   $\omega_k = v \tan(\delta_{k+1}) / L$.
+3. **Euler pose update**, heading taken at the *start* of the step:
+   $$x_{k+1} = x_k + v\cos\theta_k\,\Delta t, \qquad y_{k+1} = y_k + v\sin\theta_k\,\Delta t, \qquad \theta_{k+1} = \operatorname{wrap}(\theta_k + \omega_k \Delta t)$$
+
+Each sample also carries the full `BicycleSteeringState` (four wheel speeds and turning radius)
+from running the inverse kinematics on $\omega_k$.
+
+`project(horizon, dt, ...)` repeats this for $\lceil \text{horizon}/\Delta t \rceil$ steps and
+returns $\lceil \text{horizon}/\Delta t \rceil + 1$ samples, with the initial state seeded as
+element 0 so plots have a clean $t = 0$ anchor.
+
+### Footprints
+
+The projector optionally emits a body polygon per sample, keeping the kinematic model itself
+dimension-free. The footprint is an **arbitrary polygon** supplied in the body frame of the selected
+axle: $+x$ along the chassis heading, $+y$ to the left, origin at that axle. Each sample carries the
+polygon transformed into the world frame by that sample's pose.
+
+Because the reference axle sets the polygon's origin, the same physical body is described
+differently depending on the choice. For a vehicle with $f$ of overhang past the front axle and $r$
+of tail behind the rear axle:
+
+| Reference | Forward extent | Rearward extent |
+|---|---|---|
+| `REAR` | $L + f$ | $r$ |
+| `FRONT` | $f$ | $L + r$ |
+
+`rectangleFootprint(front_m, rear_m, width_m)` builds the boxy case, ordered counter-clockwise and
+open: rear-right, front-right, front-left, rear-left. An empty polygon means "unset": the footprint
+comes back empty and projection proceeds normally rather than throwing.
+
 ## Future Work
 Add diagrams to the readme for visualization
