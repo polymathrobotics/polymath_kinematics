@@ -26,10 +26,13 @@ endif()
 find_package(ament_cmake_auto REQUIRED)
 ament_auto_find_build_dependencies()
 
-find_package(polymath_kinematics REQUIRED)
+generate_parameter_library(
+  articulated_projector_params
+  src/articulated_projector.yaml
+)
 
 add_library(${PROJECT_NAME} SHARED
-  src/kinematics_node.cpp
+  src/articulated_projector_node.cpp
 )
 target_include_directories(${PROJECT_NAME} PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -38,22 +41,27 @@ target_include_directories(${PROJECT_NAME} PUBLIC
 target_link_libraries(
   ${PROJECT_NAME}
   PUBLIC
+    articulated_projector_params
     polymath_kinematics::polymath_kinematics
     rclcpp::rclcpp
     rclcpp_lifecycle::rclcpp_lifecycle
+    ${geometry_msgs_TARGETS}
+    ${lifecycle_msgs_TARGETS}
+    ${sensor_msgs_TARGETS}
   PRIVATE
+    magic_enum::magic_enum
     rclcpp_components::component
 )
 
 # Upstream rclcpp_components, not polymath_core's rclcpp_lifecycle_components wrapper: that
 # package lives in polymath_core and is unavailable when this repo builds standalone in its own CI.
 rclcpp_components_register_node(${PROJECT_NAME}
-  PLUGIN "polymath::kinematics_ros2::KinematicsNode"
-  EXECUTABLE kinematics_node
+  PLUGIN "polymath::kinematics::ros2::ArticulatedProjector"
+  EXECUTABLE articulated_projector
 )
 
 install(
-  TARGETS ${PROJECT_NAME} kinematics_node
+  TARGETS ${PROJECT_NAME} articulated_projector articulated_projector_params
   EXPORT ${PROJECT_NAME}_TARGETS
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib

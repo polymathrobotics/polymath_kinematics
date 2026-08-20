@@ -3,18 +3,22 @@
 <package format="3">
   <name>polymath_kinematics_ros2</name>
   <version>0.3.0</version>
-  <description>ROS 2 layer over polymath_kinematics. Placeholder — the node is a lifecycle skeleton with no interfaces yet.</description>
+  <description>ROS 2 layer over polymath_kinematics. Projects articulated-vehicle trajectories forward in time from the measured articulation angle and a commanded body velocity.</description>
   <maintainer email="engineering@polymathrobotics.com">Polymath Engineering</maintainer>
   <license>Apache-2.0</license>
   <author email="zeerek@polymathrobotics.com">Zeerek Ahmad</author>
 
   <buildtool_depend>ament_cmake_auto</buildtool_depend>
+  <buildtool_depend>generate_parameter_library</buildtool_depend>
 
+  <depend>geometry_msgs</depend>
   <depend>lifecycle_msgs</depend>
   <depend>polymath_kinematics</depend>
   <depend>rclcpp</depend>
   <depend>rclcpp_components</depend>
   <depend>rclcpp_lifecycle</depend>
+  <depend>sensor_msgs</depend>
+  <depend>magic_enum</depend>
 
   <test_depend>catch2</test_depend>
 

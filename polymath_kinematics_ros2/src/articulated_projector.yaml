@@ -1,0 +1,125 @@
+---
+articulated_projector:
+  articulation_joint_name:
+    type: string
+    default_value: articulation_joint
+    description: Name of the joint in the subscribed JointState message carrying the articulation angle (gamma) in radians.
+    read_only: true
+    validation:
+      not_empty<>:
+
+  model:
+    articulation_to_front_axle_m:
+      type: double
+      default_value: 1.65
+      description: Distance from the articulation joint to the front axle centre [m].
+      read_only: true
+      validation:
+        gt<>: [0.0]
+
+    articulation_to_rear_axle_m:
+      type: double
+      default_value: 1.65
+      description: Distance from the articulation joint to the rear axle centre [m].
+      read_only: true
+      validation:
+        gt<>: [0.0]
+
+    front_track_width_m:
+      type: double
+      default_value: 2.0
+      description: Lateral distance between the front wheel contact centres (track width) [m].
+      read_only: true
+      validation:
+        gt<>: [0.0]
+
+    rear_track_width_m:
+      type: double
+      default_value: 2.0
+      description: Lateral distance between the rear wheel contact centres (track width) [m].
+      read_only: true
+      validation:
+        gt<>: [0.0]
+
+    front_wheel_radius_m:
+      type: double
+      default_value: 0.723
+      description: Rolling radius of the front wheels [m].
+      read_only: true
+      validation:
+        gt<>: [0.0]
+
+    rear_wheel_radius_m:
+      type: double
+      default_value: 0.723
+      description: Rolling radius of the rear wheels [m].
+      read_only: true
+      validation:
+        gt<>: [0.0]
+
+  projector:
+    minimum_articulation_angle_rad:
+      type: double
+      default_value: -0.7853981633974483
+      description: Minimum articulation angle (radians) reported by the vehicle's articulation encoder.
+      read_only: false
+      validation:
+        bounds<>: [-1.57, 0.0]
+
+    maximum_articulation_angle_rad:
+      type: double
+      default_value: 0.7853981633974483
+      description: Maximum articulation angle (radians) reported by the vehicle's articulation encoder.
+      read_only: false
+      validation:
+        bounds<>: [0.0, 1.57]
+
+    axle_reference:
+      type: string
+      default_value: rear
+      description: Which axle is used as the reference for the articulation angle (rear or front).
+      read_only: false
+      validation:
+        one_of<>: [[rear, front]]
+
+    # TODO: (zeerekahmad) Do we want to be able to subscribe to these?
+    front_footprint:
+      type: double_array
+      default_value: []
+      description: The front footprint polygon, in the front-axle frame, as a flat list of x,y pairs. If empty, the front footprint is left unset.
+      read_only: false
+      validation:
+        element_bounds<>: [-100.0, 100.0]
+
+    rear_footprint:
+      type: double_array
+      default_value: []
+      description: The rear footprint polygon, in the rear-axle frame, as a flat list of x,y pairs. If empty, the rear footprint is left unset.
+      read_only: false
+      validation:
+        element_bounds<>: [-100.0, 100.0]
+
+    articulation_rate_rad_s:
+      type: double
+      default_value: 0.5
+      description: Maximum articulation rate (radians per second) the articulation joint can slew at.
+      read_only: false
+      validation:
+        gt<>: [0.0]
+
+  projection:
+    horizon_s:
+      type: double
+      default_value: 3.0
+      description: How far into the future each trajectory is projected [s].
+      read_only: false
+      validation:
+        gt<>: [0.0]
+
+    time_step_s:
+      type: double
+      default_value: 0.1
+      description: Integration step used while projecting [s]. Must be no larger than horizon_s.
+      read_only: false
+      validation:
+        gt<>: [0.0]
