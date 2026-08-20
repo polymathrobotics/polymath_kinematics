@@ -27,7 +27,7 @@ import numpy as np
 import streamlit as st
 
 from polymath_kinematics import AxleReference, rectangle_footprint
-from polymath_kinematics.explorer import (
+from polymath_kinematics_python_tools.explorer import (
     KINEMATIC_EQUATIONS,
     LATTICE_CONFIG,
     TRAJECTORY_EQUATIONS,
@@ -48,7 +48,7 @@ from polymath_kinematics.explorer import (
     single_differential_trajectory,
     trajectories_to_dataframe,
 )
-from polymath_kinematics.explorer.config import (
+from polymath_kinematics_python_tools.explorer.config import (
     DEFAULT_ARTICULATED_FRONT_OVERHANG_M,
     DEFAULT_ARTICULATED_REAR_OVERHANG_M,
     DEFAULT_BICYCLE_FRONT_OVERHANG_M,

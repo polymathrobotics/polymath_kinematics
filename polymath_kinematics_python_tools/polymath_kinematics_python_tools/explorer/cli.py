@@ -57,7 +57,7 @@ def main(argv: list[str] | None = None) -> int:
         return subprocess.call(command)
     except FileNotFoundError:
         print(
-            'error: streamlit is not installed. Install the explorer extra with:\n  uv pip install -e ".[explorer]"',
+            'error: streamlit is not installed. Install this project with:\n  uv sync',
             file=sys.stderr,
         )
         return 1

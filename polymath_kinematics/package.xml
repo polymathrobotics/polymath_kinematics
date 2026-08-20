@@ -2,8 +2,8 @@
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
   <name>polymath_kinematics</name>
-  <version>0.2.0</version>
-  <description>Mixed C++/Python kinematics library for vehicle models</description>
+  <version>0.3.0</version>
+  <description>Kinematic models and projectors for differential-drive, bicycle, and articulated vehicles</description>
   <maintainer email="engineering@polymathrobotics.com">Polymath Engineering</maintainer>
   <license>Apache-2.0</license>
   <author email="zeerek@polymathrobotics.com">Zeerek Ahmad</author>
@@ -12,15 +12,10 @@
   <buildtool_depend>ament_cmake_python</buildtool_depend>
 
   <depend>pybind11_vendor</depend>
-  <depend>python3-numpy</depend>
 
   <test_depend>ament_cmake_pytest</test_depend>
   <test_depend>ament_cmake_test</test_depend>
   <test_depend>catch2</test_depend>
-  <!-- Explorer subpackage deps (optional [explorer] extra) needed to import
-       polymath_kinematics.explorer during test_explorer. -->
-  <test_depend>python3-pandas</test_depend>
-  <test_depend>python3-matplotlib</test_depend>
 
   <export>
     <build_type>ament_cmake</build_type>

@@ -1,45 +1,10 @@
-[build-system]
-requires = ["scikit-build-core>=0.10", "pybind11>=2.12"]
-build-backend = "scikit_build_core.build"
-
-[project]
-name = "polymath_kinematics"
-version = "0.2.0"
-description = "Mixed C++/Python kinematics library for vehicle models"
-license = { text = "Apache-2.0" }
-maintainers = [
-    { name = "Polymath Robotics", email = "dev@polymathrobotics.com" },
-]
-requires-python = ">=3.10"
-dependencies = [
-    "numpy>=1.21.0",
+# Virtual uv workspace root: no [project] table, so this directory is not itself a package.
+# It exists to give both Python members one shared lockfile and one shared .venv.
+[tool.uv.workspace]
+members = [
+    "polymath_kinematics",
+    "polymath_kinematics_python_tools",
 ]
 
-[project.optional-dependencies]
-explorer = [
-    "streamlit>=1.20.0",
-    "matplotlib>=3.5.0",
-    "pandas>=1.4.0",
-]
-dev = [
-    "pytest>=7.0.0",
-    "polymath_kinematics[explorer]",
-]
-
-[project.scripts]
-kinematic-explorer = "polymath_kinematics.explorer.cli:main"
-
-[tool.scikit-build]
-cmake.version = ">=3.15"
-build.verbose = false
-# C++ tests are built out-of-band via `cmake -DBUILD_TESTING=ON`, not as part of the wheel.
-# CMAKE_DISABLE_FIND_PACKAGE_ament_cmake forces the wheel build down the non-ament path even
-# when /opt/ros/humble is installed on the system — otherwise the ROS2 branch is taken and
-# then fails on missing build-env deps like catkin_pkg.
-cmake.args = ["-DBUILD_TESTING=OFF", "-DCMAKE_DISABLE_FIND_PACKAGE_ament_cmake=ON"]
-wheel.packages = ["polymath_kinematics"]
-
-# uv reads this; defers to the extras above so the pins live in one place.
-[dependency-groups]
-dev = [{ include-group = "explorer" }, "pytest>=7.0.0"]
-explorer = ["polymath_kinematics[explorer]"]
+[tool.uv.sources]
+polymath_kinematics = { workspace = true }

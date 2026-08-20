@@ -1,5 +1,28 @@
 # Changelog
 
+## v0.3.0
+
+### Split into three self-contained projects
+
+- **`polymath_kinematics/`** — C++ models, projectors, and pybind11 bindings. The package name, the
+  `polymath_kinematics::polymath_kinematics` target, and the `polymath_kinematics/*.hpp` include
+  paths are unchanged, so downstream C++ consumers need no edits.
+- **`polymath_kinematics_python_tools/`** — the Kinematic Explorer, uv-managed and pure Python.
+- **`polymath_kinematics_ros2/`** — new placeholder ROS 2 package; a lifecycle node with no
+  interfaces yet.
+
+### Breaking
+
+- `polymath_kinematics.explorer` → `polymath_kinematics_python_tools.explorer`. The
+  `kinematic-explorer` console script is unchanged.
+- The `[explorer]` and `[dev]` extras are gone; those dependencies now belong to
+  `polymath_kinematics_python_tools`. `polymath_kinematics` no longer depends on numpy, pandas, or
+  matplotlib in either `pyproject.toml` or `package.xml`.
+
+### Other
+
+- The repository root is a uv workspace with a single `uv.lock`.
+
 ## v0.2.0
 
 ### Forward projection

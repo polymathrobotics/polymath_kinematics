@@ -28,6 +28,7 @@ jobs:
       PIP_BREAK_SYSTEM_PACKAGES: 1
     steps:
       - uses: actions/checkout@v5
+      # Builds both ament_cmake projects: polymath_kinematics and polymath_kinematics_ros2.
       - uses: ros-tooling/action-ros-ci@v0.4
         with:
           target-ros2-distro: ${{ matrix.ros }}
@@ -43,12 +44,15 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: astral-sh/setup-uv@v7
-      - name: Install package with dev extra
-        run: uv venv && uv pip install -e ".[dev]"
+      - name: Sync the uv workspace
+        run: uv sync
       - name: Python tests
-        run: uv run pytest test/test_python_bindings.py test/test_explorer.py -v
+        run: >
+          uv run pytest
+          polymath_kinematics/test/test_python_bindings.py
+          polymath_kinematics_python_tools/test/test_explorer.py -v
       - name: Explorer imports cleanly
-        run: uv run python -c "import polymath_kinematics.explorer"
+        run: uv run python -c "import polymath_kinematics_python_tools.explorer"
       - name: Console script resolves and launches
         # A healthy headless start proves the entry point doesn't run the app body on import.
         run: |
@@ -72,7 +76,7 @@ jobs:
       - name: Configure
         # CMAKE_DISABLE_FIND_PACKAGE_ament_cmake forces the non-ament branch.
         run: >
-          cmake -S . -B build -DBUILD_TESTING=ON
+          cmake -S polymath_kinematics -B build -DBUILD_TESTING=ON
           -DCMAKE_DISABLE_FIND_PACKAGE_ament_cmake=ON
       - name: Build
         run: cmake --build build -j

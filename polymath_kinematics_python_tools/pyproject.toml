@@ -1,0 +1,29 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "polymath_kinematics_python_tools"
+version = "0.3.0"
+description = "Kinematic Explorer — trajectory simulation, visualization, and export tools"
+license = { text = "Apache-2.0" }
+maintainers = [
+    { name = "Polymath Robotics", email = "dev@polymathrobotics.com" },
+]
+requires-python = ">=3.10"
+dependencies = [
+    "polymath_kinematics",
+    "numpy>=1.21.0",
+    "streamlit>=1.20.0",
+    "matplotlib>=3.5.0",
+    "pandas>=1.4.0",
+]
+
+[project.scripts]
+kinematic-explorer = "polymath_kinematics_python_tools.explorer.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["polymath_kinematics_python_tools"]
+
+[dependency-groups]
+dev = ["pytest>=7.0.0"]
