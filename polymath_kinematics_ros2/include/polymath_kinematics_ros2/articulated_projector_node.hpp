@@ -23,7 +23,9 @@
 #include "polymath_kinematics_ros2/articulated_projector_params.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_lifecycle/lifecycle_node.hpp"
+#include "rclcpp_lifecycle/lifecycle_publisher.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
+#include "visualization_msgs/msg/marker_array.hpp"
 
 namespace polymath::kinematics::ros2
 {
@@ -34,8 +36,8 @@ namespace polymath::kinematics::ros2
 /// commanded body velocity from a cmd_vel topic. Every command produces a fresh forward projection
 /// over `projection.horizon_s` at `projection.time_step_s` steps, starting from the identity pose
 /// and the measured articulation angle, and ramping toward the articulation angle the command asks
-/// for. The result is held on the node and read back with getLastProjection(); nothing is published
-/// yet.
+/// for. The result is held on the node for getLastProjection() and published on
+/// `projected_footprints` as a MarkerArray outlining both bodies at every sample.
 class ArticulatedProjectorNode : public rclcpp_lifecycle::LifecycleNode
 {
 public:
@@ -74,9 +76,17 @@ private:
   /// \param msg The incoming joint state.
   void onJointState(const sensor_msgs::msg::JointState & msg);
 
-  /// Project the trajectory the command implies from the measured articulation angle.
+  /// Project the trajectory the command implies from the measured articulation angle, and publish
+  /// the footprint markers for it.
   /// \param msg The incoming velocity command.
   void onCmdVel(const geometry_msgs::msg::TwistStamped & msg);
+
+  /// Outline the front and rear body footprints at every sample of `projection`. Samples whose
+  /// footprint is unset contribute no marker.
+  /// \param projection Projection to draw, in the frame named by `visualization.frame_id`.
+  /// \return Markers led by a DELETEALL that clears the previous publication.
+  std::unique_ptr<visualization_msgs::msg::MarkerArray> produceProjectedFootprintMarkers(
+    const std::vector<polymath::kinematics::ArticulatedProjectedState> & projection) const;
 
   /// The underlying polymath_kinematics projector. Null until on_configure() succeeds.
   std::unique_ptr<polymath::kinematics::ArticulatedProjector> projector_;
@@ -86,6 +96,7 @@ private:
   rclcpp::Subscription<geometry_msgs::msg::TwistStamped>::SharedPtr cmd_vel_sub_;
 
   /// Publishers
+  rclcpp_lifecycle::LifecyclePublisher<visualization_msgs::msg::MarkerArray>::SharedPtr footprint_marker_pub_;
 
   /// Guards the state shared between the two subscription callbacks and the accessors, so the node
   /// stays correct under a multi-threaded executor.

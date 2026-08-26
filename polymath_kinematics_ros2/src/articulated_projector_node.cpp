@@ -20,11 +20,15 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <string>
+#include <utility>
 #include <vector>
 
+#include "geometry_msgs/msg/point.hpp"
 #include "lifecycle_msgs/msg/state.hpp"
 #include "magic_enum/magic_enum.hpp"
 #include "rclcpp_components/register_node_macro.hpp"
+#include "std_msgs/msg/color_rgba.hpp"
 
 RCLCPP_COMPONENTS_REGISTER_NODE(polymath::kinematics::ros2::ArticulatedProjectorNode)
 
@@ -37,6 +41,18 @@ namespace
 /// Depth of the two command/feedback subscriptions. Both carry the latest sample only, so a short
 /// queue is enough and keeps a backlog from projecting stale commands.
 constexpr int SUBSCRIPTION_QUEUE_DEPTH = 1;
+
+/// Depth of the marker publisher; each publication supersedes the last.
+constexpr int MARKER_QUEUE_DEPTH = 1;
+
+/// Height above the ground plane the outlines are drawn at.
+constexpr double MARKER_Z_OFFSET_M = 0.001;
+
+/// Marker namespace holding the front-body outlines.
+constexpr const char * FRONT_MARKER_NAMESPACE = "projected_front_footprint";
+
+/// Marker namespace holding the rear-body outlines.
+constexpr const char * REAR_MARKER_NAMESPACE = "projected_rear_footprint";
 
 /// Reinterpret a flat [x0, y0, x1, y1, ...] parameter as a footprint polygon.
 /// \param flat_xy Flat list of alternating x and y coordinates; an odd length is rejected.
@@ -52,6 +68,55 @@ std::optional<Footprint> footprintFromFlatArray(const std::vector<double> & flat
     footprint.push_back(Point2D{flat_xy[index], flat_xy[index + 1]});
   }
   return footprint;
+}
+
+/// Reinterpret an [r, g, b, a] parameter as a color. The parameter is validated to hold exactly
+/// four entries in [0.0, 1.0].
+std_msgs::msg::ColorRGBA colorFromArray(const std::vector<double> & rgba)
+{
+  std_msgs::msg::ColorRGBA color;
+  color.r = static_cast<float>(rgba[0]);
+  color.g = static_cast<float>(rgba[1]);
+  color.b = static_cast<float>(rgba[2]);
+  color.a = static_cast<float>(rgba[3]);
+  return color;
+}
+
+/// Append a closed LINE_STRIP tracing `footprint` to `markers`, taking every shared field from
+/// `prototype`. An empty footprint appends nothing.
+/// \param prototype Marker carrying the header, type, scale, and lifetime shared by all outlines.
+/// \param footprint Open polygon in the frame of `prototype`'s header.
+/// \param marker_namespace Namespace to file the outline under.
+/// \param color Stroke color.
+/// \param id Marker id, unique within `marker_namespace`.
+/// \param markers Array the outline is appended to.
+void appendFootprintOutline(
+  const visualization_msgs::msg::Marker & prototype,
+  const Footprint & footprint,
+  const char * marker_namespace,
+  const std_msgs::msg::ColorRGBA & color,
+  int id,
+  visualization_msgs::msg::MarkerArray & markers)
+{
+  if (footprint.empty()) {
+    return;
+  }
+
+  visualization_msgs::msg::Marker outline = prototype;
+  outline.ns = marker_namespace;
+  outline.id = id;
+  outline.color = color;
+  outline.points.reserve(footprint.size() + 1);
+  for (const Point2D & vertex : footprint) {
+    geometry_msgs::msg::Point point;
+    point.x = vertex.x;
+    point.y = vertex.y;
+    outline.points.push_back(point);
+  }
+  // Footprints arrive open; repeating the first vertex closes the outline.
+  outline.points.push_back(outline.points.front());
+
+  markers.markers.push_back(std::move(outline));
 }
 
 }  // namespace
@@ -112,6 +177,9 @@ ArticulatedProjectorNode::CallbackReturn ArticulatedProjectorNode::on_configure(
   cmd_vel_sub_ = create_subscription<geometry_msgs::msg::TwistStamped>(
     "cmd_vel", SUBSCRIPTION_QUEUE_DEPTH, [this](const geometry_msgs::msg::TwistStamped & msg) { onCmdVel(msg); });
 
+  footprint_marker_pub_ =
+    create_publisher<visualization_msgs::msg::MarkerArray>("projected_footprints", MARKER_QUEUE_DEPTH);
+
   RCLCPP_INFO(
     get_logger(),
     "configured: tracking joint '%s', projecting %.2fs ahead in %.3fs steps",
@@ -124,6 +192,7 @@ ArticulatedProjectorNode::CallbackReturn ArticulatedProjectorNode::on_configure(
 ArticulatedProjectorNode::CallbackReturn ArticulatedProjectorNode::on_activate(const rclcpp_lifecycle::State & state)
 {
   (void)state;
+  footprint_marker_pub_->on_activate();
   RCLCPP_INFO(get_logger(), "activated");
   return CallbackReturn::SUCCESS;
 }
@@ -131,6 +200,7 @@ ArticulatedProjectorNode::CallbackReturn ArticulatedProjectorNode::on_activate(c
 ArticulatedProjectorNode::CallbackReturn ArticulatedProjectorNode::on_deactivate(const rclcpp_lifecycle::State & state)
 {
   (void)state;
+  footprint_marker_pub_->on_deactivate();
   RCLCPP_INFO(get_logger(), "deactivated");
   return CallbackReturn::SUCCESS;
 }
@@ -140,6 +210,7 @@ ArticulatedProjectorNode::CallbackReturn ArticulatedProjectorNode::on_cleanup(co
   (void)state;
   joint_state_sub_.reset();
   cmd_vel_sub_.reset();
+  footprint_marker_pub_.reset();
   projector_.reset();
   {
     const std::lock_guard<std::mutex> lock(state_mutex_);
@@ -192,15 +263,56 @@ void ArticulatedProjectorNode::onCmdVel(const geometry_msgs::msg::TwistStamped &
   ArticulatedModel model = projector_->get_model();
   const ArticulatedVehicleState commanded = model.bodyVelocityToVehicleState(msg.twist.linear.x, msg.twist.angular.z);
 
-  const std::lock_guard<std::mutex> lock(state_mutex_);
-  last_projection_ = projector_->project(
-    params_.projection.horizon_s,
-    params_.projection.time_step_s,
-    Pose2D{0.0, 0.0, 0.0},
-    articulation_angle_rad_,
-    commanded.articulation_angle_rad,
-    params_.projector.articulation_rate_rad_s,
-    msg.twist.linear.x);
+  std::unique_ptr<visualization_msgs::msg::MarkerArray> markers;
+  {
+    const std::lock_guard<std::mutex> lock(state_mutex_);
+    last_projection_ = projector_->project(
+      params_.projection.horizon_s,
+      params_.projection.time_step_s,
+      Pose2D{0.0, 0.0, 0.0},
+      articulation_angle_rad_,
+      commanded.articulation_angle_rad,
+      params_.projector.articulation_rate_rad_s,
+      msg.twist.linear.x);
+    markers = produceProjectedFootprintMarkers(last_projection_);
+  }
+
+  footprint_marker_pub_->publish(std::move(markers));
+}
+
+std::unique_ptr<visualization_msgs::msg::MarkerArray> ArticulatedProjectorNode::produceProjectedFootprintMarkers(
+  const std::vector<ArticulatedProjectedState> & projection) const
+{
+  auto markers = std::make_unique<visualization_msgs::msg::MarkerArray>();
+  markers->markers.reserve(2 * projection.size() + 1);
+
+  visualization_msgs::msg::Marker clear_previous;
+  clear_previous.action = visualization_msgs::msg::Marker::DELETEALL;
+  markers->markers.push_back(clear_previous);
+
+  visualization_msgs::msg::Marker prototype;
+  prototype.header.frame_id = params_.visualization.frame_id;
+  prototype.header.stamp = now();
+  prototype.type = visualization_msgs::msg::Marker::LINE_STRIP;
+  prototype.action = visualization_msgs::msg::Marker::ADD;
+  prototype.pose.position.z = MARKER_Z_OFFSET_M;
+  prototype.pose.orientation.w = 1.0;
+  prototype.scale.x = params_.visualization.line_width_m;
+  prototype.lifetime = rclcpp::Duration::from_seconds(params_.visualization.marker_lifetime_s);
+
+  const std_msgs::msg::ColorRGBA front_color = colorFromArray(params_.visualization.front_color);
+  const std_msgs::msg::ColorRGBA rear_color = colorFromArray(params_.visualization.rear_color);
+
+  // The projector emits footprints already in the projection frame, so each outline carries those
+  // points directly and its marker pose stays at the origin.
+  int marker_id = 0;
+  for (const ArticulatedProjectedState & sample : projection) {
+    appendFootprintOutline(prototype, sample.front_footprint, FRONT_MARKER_NAMESPACE, front_color, marker_id, *markers);
+    appendFootprintOutline(prototype, sample.rear_footprint, REAR_MARKER_NAMESPACE, rear_color, marker_id, *markers);
+    ++marker_id;
+  }
+
+  return markers;
 }
 
 }  // namespace polymath::kinematics::ros2

@@ -123,3 +123,46 @@ articulated_projector:
       read_only: false
       validation:
         gt<>: [0.0]
+
+  visualization:
+    frame_id:
+      type: string
+      default_value: base_link
+      description: TF frame the projection markers are stamped with. Projections start at the reference axle, so this must name the frame of the axle selected by projector.axle_reference.
+      read_only: true
+      validation:
+        not_empty<>:
+
+    front_color:
+      type: double_array
+      default_value: [0.0, 0.6, 1.0, 0.8]
+      description: Front-body footprint outline color as r,g,b,a, each in [0.0, 1.0].
+      read_only: true
+      validation:
+        fixed_size<>: [4]
+        element_bounds<>: [0.0, 1.0]
+
+    rear_color:
+      type: double_array
+      default_value: [1.0, 0.6, 0.0, 0.8]
+      description: Rear-body footprint outline color as r,g,b,a, each in [0.0, 1.0].
+      read_only: true
+      validation:
+        fixed_size<>: [4]
+        element_bounds<>: [0.0, 1.0]
+
+    line_width_m:
+      type: double
+      default_value: 0.05
+      description: Width of the footprint outline strokes [m].
+      read_only: true
+      validation:
+        bounds<>: [0.005, 0.5]
+
+    marker_lifetime_s:
+      type: double
+      default_value: 1.0
+      description: How long a published marker survives without being republished [s]. 0.0 keeps it forever.
+      read_only: true
+      validation:
+        bounds<>: [0.0, 20.0]

@@ -25,6 +25,7 @@
 #include "polymath_kinematics_ros2/articulated_projector_node.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
+#include "visualization_msgs/msg/marker_array.hpp"
 
 namespace
 {
@@ -50,21 +51,31 @@ public:
   RclcppFixture & operator=(const RclcppFixture &) = delete;
 };
 
-/// Spin `node` until `predicate` holds or the budget runs out, so a test never blocks forever on a
-/// message that is not coming.
+/// Spin every node in `nodes` until `predicate` holds or the budget runs out, so a test never
+/// blocks forever on a message that is not coming.
 /// \return True if the predicate held before the budget expired.
 template <typename PredicateT>
-bool spinUntil(const std::shared_ptr<ArticulatedProjectorNode> & node, PredicateT predicate)
+bool spinUntil(const std::vector<rclcpp::node_interfaces::NodeBaseInterface::SharedPtr> & nodes, PredicateT predicate)
 {
   constexpr int MAX_SPINS = 200;
   for (int spin = 0; spin < MAX_SPINS; ++spin) {
     if (predicate()) {
       return true;
     }
-    rclcpp::spin_some(node->get_node_base_interface());
+    for (const rclcpp::node_interfaces::NodeBaseInterface::SharedPtr & base : nodes) {
+      rclcpp::spin_some(base);
+    }
     std::this_thread::sleep_for(std::chrono::milliseconds(5));
   }
   return predicate();
+}
+
+/// Spin the node under test alone.
+/// \return True if the predicate held before the budget expired.
+template <typename PredicateT>
+bool spinUntil(const std::shared_ptr<ArticulatedProjectorNode> & node, PredicateT predicate)
+{
+  return spinUntil({node->get_node_base_interface()}, predicate);
 }
 
 /// Build a JointState naming a decoy joint ahead of the articulation joint, so a test that passes
@@ -168,6 +179,111 @@ TEST_CASE("KinematicsNode projects a trajectory from the latched angle and cmd_v
   CHECK(projection.back().time_s == Approx(horizon_s));
   CHECK(projection.back().articulation_angle_rad == Approx(0.0).margin(1e-9));
   CHECK(projection.back().pose.x > projection.front().pose.x);
+}
+
+TEST_CASE("KinematicsNode publishes the projected footprints as markers", "[kinematics_node]")
+{
+  const RclcppFixture fixture;
+
+  // A 2 m x 2 m square about each axle, so every sample contributes a four-vertex outline.
+  const std::vector<double> square = {-1.0, -1.0, 1.0, -1.0, 1.0, 1.0, -1.0, 1.0};
+  rclcpp::NodeOptions options;
+  options.parameter_overrides(
+    {rclcpp::Parameter("projector.front_footprint", square),
+     rclcpp::Parameter("projector.rear_footprint", square),
+     rclcpp::Parameter("visualization.frame_id", std::string("rear_axle"))});
+
+  auto node = std::make_shared<ArticulatedProjectorNode>(options);
+  REQUIRE(lifecycle_msgs::msg::State::PRIMARY_STATE_INACTIVE == node->configure().id());
+  REQUIRE(lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE == node->activate().id());
+
+  auto peer_node = std::make_shared<rclcpp::Node>("marker_listener");
+  visualization_msgs::msg::MarkerArray received;
+  auto marker_subscription = peer_node->create_subscription<visualization_msgs::msg::MarkerArray>(
+    "projected_footprints", 1, [&received](const visualization_msgs::msg::MarkerArray & msg) { received = msg; });
+  auto cmd_vel_publisher = peer_node->create_publisher<geometry_msgs::msg::TwistStamped>("cmd_vel", 1);
+
+  const std::vector<rclcpp::node_interfaces::NodeBaseInterface::SharedPtr> nodes = {
+    node->get_node_base_interface(), peer_node->get_node_base_interface()};
+
+  // Publishing before discovery completes drops the command, and with it the only marker array.
+  REQUIRE(spinUntil(nodes, [&marker_subscription, &cmd_vel_publisher] {
+    return 0 < marker_subscription->get_publisher_count() && 0 < cmd_vel_publisher->get_subscription_count();
+  }));
+
+  geometry_msgs::msg::TwistStamped command;
+  command.twist.linear.x = 1.0;
+  command.twist.angular.z = 0.2;
+  cmd_vel_publisher->publish(command);
+  REQUIRE(spinUntil(nodes, [&received] { return !received.markers.empty(); }));
+
+  // One DELETEALL, then a front and a rear outline per projected sample.
+  const size_t sample_count = node->getLastProjection().size();
+  REQUIRE(0 < sample_count);
+  CHECK(2 * sample_count + 1 == received.markers.size());
+
+  CHECK(visualization_msgs::msg::Marker::DELETEALL == received.markers.front().action);
+
+  const double line_width_m = node->get_parameter("visualization.line_width_m").as_double();
+  size_t front_outlines = 0;
+  size_t rear_outlines = 0;
+  for (size_t index = 1; index < received.markers.size(); ++index) {
+    const visualization_msgs::msg::Marker & outline = received.markers[index];
+    CHECK(visualization_msgs::msg::Marker::ADD == outline.action);
+    CHECK(visualization_msgs::msg::Marker::LINE_STRIP == outline.type);
+    CHECK(std::string("rear_axle") == outline.header.frame_id);
+    CHECK(outline.scale.x == Approx(line_width_m));
+
+    // Four vertices plus the repeat that closes the outline.
+    REQUIRE(5 == outline.points.size());
+    CHECK(outline.points.front().x == Approx(outline.points.back().x));
+    CHECK(outline.points.front().y == Approx(outline.points.back().y));
+
+    if ("projected_front_footprint" == outline.ns) {
+      ++front_outlines;
+    } else if ("projected_rear_footprint" == outline.ns) {
+      ++rear_outlines;
+    }
+  }
+  CHECK(sample_count == front_outlines);
+  CHECK(sample_count == rear_outlines);
+
+  // The outlines carry projection-frame points, so a turning command spreads them out.
+  const visualization_msgs::msg::Marker & first_rear = received.markers[2];
+  const visualization_msgs::msg::Marker & last_rear = received.markers.back();
+  CHECK(std::string("projected_rear_footprint") == first_rear.ns);
+  CHECK(std::string("projected_rear_footprint") == last_rear.ns);
+  CHECK(last_rear.points.front().x > first_rear.points.front().x);
+}
+
+TEST_CASE("KinematicsNode publishes no markers for an unset footprint", "[kinematics_node]")
+{
+  const RclcppFixture fixture;
+  auto node = std::make_shared<ArticulatedProjectorNode>(rclcpp::NodeOptions());
+  REQUIRE(lifecycle_msgs::msg::State::PRIMARY_STATE_INACTIVE == node->configure().id());
+  REQUIRE(lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE == node->activate().id());
+
+  auto peer_node = std::make_shared<rclcpp::Node>("marker_listener");
+  visualization_msgs::msg::MarkerArray received;
+  auto marker_subscription = peer_node->create_subscription<visualization_msgs::msg::MarkerArray>(
+    "projected_footprints", 1, [&received](const visualization_msgs::msg::MarkerArray & msg) { received = msg; });
+  auto cmd_vel_publisher = peer_node->create_publisher<geometry_msgs::msg::TwistStamped>("cmd_vel", 1);
+
+  const std::vector<rclcpp::node_interfaces::NodeBaseInterface::SharedPtr> nodes = {
+    node->get_node_base_interface(), peer_node->get_node_base_interface()};
+
+  REQUIRE(spinUntil(nodes, [&marker_subscription, &cmd_vel_publisher] {
+    return 0 < marker_subscription->get_publisher_count() && 0 < cmd_vel_publisher->get_subscription_count();
+  }));
+
+  geometry_msgs::msg::TwistStamped command;
+  command.twist.linear.x = 1.0;
+  cmd_vel_publisher->publish(command);
+  REQUIRE(spinUntil(nodes, [&received] { return !received.markers.empty(); }));
+
+  // The footprint parameters default to empty, leaving only the DELETEALL.
+  CHECK(1 == received.markers.size());
+  CHECK(visualization_msgs::msg::Marker::DELETEALL == received.markers.front().action);
 }
 
 TEST_CASE("KinematicsNode ignores cmd_vel while inactive", "[kinematics_node]")

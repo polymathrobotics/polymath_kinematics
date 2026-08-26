@@ -48,6 +48,8 @@ target_link_libraries(
     ${geometry_msgs_TARGETS}
     ${lifecycle_msgs_TARGETS}
     ${sensor_msgs_TARGETS}
+    ${std_msgs_TARGETS}
+    ${visualization_msgs_TARGETS}
   PRIVATE
     magic_enum::magic_enum
     rclcpp_components::component
