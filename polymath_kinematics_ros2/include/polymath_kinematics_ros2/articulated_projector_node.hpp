@@ -14,11 +14,13 @@
 
 #pragma once
 
+#include <atomic>
 #include <memory>
 #include <mutex>
 #include <vector>
 
 #include "geometry_msgs/msg/twist_stamped.hpp"
+#include "nav_msgs/msg/path.hpp"
 #include "polymath_kinematics/articulated_projector.hpp"
 #include "polymath_kinematics_ros2/articulated_projector_params.hpp"
 #include "rclcpp/rclcpp.hpp"
@@ -36,8 +38,9 @@ namespace polymath::kinematics::ros2
 /// commanded body velocity from a cmd_vel topic. Every command produces a fresh forward projection
 /// over `projection.horizon_s` at `projection.time_step_s` steps, starting from the identity pose
 /// and the measured articulation angle, and ramping toward the articulation angle the command asks
-/// for. The result is held on the node for getLastProjection() and published on
-/// `projected_footprints` as a MarkerArray outlining both bodies at every sample.
+/// for. The result is held on the node for getLastProjection() and published two ways: as a
+/// MarkerArray on `projected_footprints` outlining both bodies at every sample, and as a Path on
+/// `projected_path` tracing the reference axle through those same samples.
 class ArticulatedProjectorNode : public rclcpp_lifecycle::LifecycleNode
 {
 public:
@@ -88,6 +91,14 @@ private:
   std::unique_ptr<visualization_msgs::msg::MarkerArray> produceProjectedFootprintMarkers(
     const std::vector<polymath::kinematics::ArticulatedProjectedState> & projection) const;
 
+  /// Trace the reference axle through `projection`, one pose per sample including the initial one.
+  /// The axle is the one named by `projector.axle_reference`, and each pose's yaw is the heading of
+  /// the body that axle belongs to.
+  /// \param projection Projection to trace, in the frame named by `visualization.frame_id`.
+  /// \return A Path holding every sample, undecimated.
+  std::unique_ptr<nav_msgs::msg::Path> produceProjectedPath(
+    const std::vector<polymath::kinematics::ArticulatedProjectedState> & projection) const;
+
   /// The underlying polymath_kinematics projector. Null until on_configure() succeeds.
   std::unique_ptr<polymath::kinematics::ArticulatedProjector> projector_;
 
@@ -97,6 +108,7 @@ private:
 
   /// Publishers
   rclcpp_lifecycle::LifecyclePublisher<visualization_msgs::msg::MarkerArray>::SharedPtr footprint_marker_pub_;
+  rclcpp_lifecycle::LifecyclePublisher<nav_msgs::msg::Path>::SharedPtr path_pub_;
 
   /// Guards the state shared between the two subscription callbacks and the accessors, so the node
   /// stays correct under a multi-threaded executor.
@@ -104,6 +116,10 @@ private:
 
   /// Most recent measured articulation angle (gamma) in radians.
   double articulation_angle_rad_{0.0};
+
+  /// Set once a JointState naming the configured joint has supplied an angle. Read outside
+  /// state_mutex_ by the logging in both callbacks.
+  std::atomic<bool> articulation_angle_seen_{false};
 
   /// Most recent projection, one entry per time step including the initial state.
   std::vector<polymath::kinematics::ArticulatedProjectedState> last_projection_;

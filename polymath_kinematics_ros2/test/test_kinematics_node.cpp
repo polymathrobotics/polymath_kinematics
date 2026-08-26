@@ -22,6 +22,7 @@
 #include "catch2_compat.hpp"
 #include "geometry_msgs/msg/twist_stamped.hpp"
 #include "lifecycle_msgs/msg/state.hpp"
+#include "nav_msgs/msg/path.hpp"
 #include "polymath_kinematics_ros2/articulated_projector_node.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
@@ -254,6 +255,57 @@ TEST_CASE("KinematicsNode publishes the projected footprints as markers", "[kine
   CHECK(std::string("projected_rear_footprint") == first_rear.ns);
   CHECK(std::string("projected_rear_footprint") == last_rear.ns);
   CHECK(last_rear.points.front().x > first_rear.points.front().x);
+}
+
+TEST_CASE("KinematicsNode publishes the projected reference-axle path", "[kinematics_node]")
+{
+  const RclcppFixture fixture;
+  rclcpp::NodeOptions options;
+  options.parameter_overrides({rclcpp::Parameter("visualization.frame_id", std::string("rear_axle"))});
+
+  auto node = std::make_shared<ArticulatedProjectorNode>(options);
+  REQUIRE(lifecycle_msgs::msg::State::PRIMARY_STATE_INACTIVE == node->configure().id());
+  REQUIRE(lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE == node->activate().id());
+
+  auto peer_node = std::make_shared<rclcpp::Node>("path_listener");
+  nav_msgs::msg::Path received;
+  auto path_subscription = peer_node->create_subscription<nav_msgs::msg::Path>(
+    "projected_path", 1, [&received](const nav_msgs::msg::Path & msg) { received = msg; });
+  auto cmd_vel_publisher = peer_node->create_publisher<geometry_msgs::msg::TwistStamped>("cmd_vel", 1);
+
+  const std::vector<rclcpp::node_interfaces::NodeBaseInterface::SharedPtr> nodes = {
+    node->get_node_base_interface(), peer_node->get_node_base_interface()};
+
+  REQUIRE(spinUntil(nodes, [&path_subscription, &cmd_vel_publisher] {
+    return 0 < path_subscription->get_publisher_count() && 0 < cmd_vel_publisher->get_subscription_count();
+  }));
+
+  geometry_msgs::msg::TwistStamped command;
+  command.twist.linear.x = 1.0;
+  command.twist.angular.z = 0.3;
+  cmd_vel_publisher->publish(command);
+  REQUIRE(spinUntil(nodes, [&received] { return !received.poses.empty(); }));
+
+  // The path is undecimated: one pose per projected sample, unlike the markers, which only carry a
+  // pose for samples whose footprint is set.
+  const std::vector<polymath::kinematics::ArticulatedProjectedState> projection = node->getLastProjection();
+  REQUIRE(projection.size() == received.poses.size());
+  CHECK(std::string("rear_axle") == received.header.frame_id);
+
+  for (size_t index = 0; index < projection.size(); ++index) {
+    const geometry_msgs::msg::PoseStamped & pose = received.poses[index];
+    CHECK(std::string("rear_axle") == pose.header.frame_id);
+    CHECK(pose.pose.position.x == Approx(projection[index].pose.x));
+    CHECK(pose.pose.position.y == Approx(projection[index].pose.y));
+    // Yaw-only orientation, so the quaternion is a unit half-angle pair about z.
+    CHECK(pose.pose.orientation.z == Approx(std::sin(projection[index].pose.theta / 2.0)));
+    CHECK(pose.pose.orientation.w == Approx(std::cos(projection[index].pose.theta / 2.0)));
+    CHECK(pose.pose.orientation.x == Approx(0.0));
+    CHECK(pose.pose.orientation.y == Approx(0.0));
+  }
+
+  // A turning command must actually bend the path, not emit a straight line.
+  CHECK(std::abs(received.poses.back().pose.position.y) > 0.1);
 }
 
 TEST_CASE("KinematicsNode publishes no markers for an unset footprint", "[kinematics_node]")

@@ -15,6 +15,7 @@
 #include "polymath_kinematics_ros2/articulated_projector_node.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <iterator>
 #include <memory>
@@ -25,6 +26,7 @@
 #include <vector>
 
 #include "geometry_msgs/msg/point.hpp"
+#include "geometry_msgs/msg/pose_stamped.hpp"
 #include "lifecycle_msgs/msg/state.hpp"
 #include "magic_enum/magic_enum.hpp"
 #include "rclcpp_components/register_node_macro.hpp"
@@ -42,7 +44,7 @@ namespace
 /// queue is enough and keeps a backlog from projecting stale commands.
 constexpr int SUBSCRIPTION_QUEUE_DEPTH = 1;
 
-/// Depth of the marker publisher; each publication supersedes the last.
+/// Depth of the marker and path publishers; each publication supersedes the last.
 constexpr int MARKER_QUEUE_DEPTH = 1;
 
 /// Height above the ground plane the outlines are drawn at.
@@ -53,6 +55,24 @@ constexpr const char * FRONT_MARKER_NAMESPACE = "projected_front_footprint";
 
 /// Marker namespace holding the rear-body outlines.
 constexpr const char * REAR_MARKER_NAMESPACE = "projected_rear_footprint";
+
+/// Throttle period for the per-message diagnostic logs.
+constexpr int LOG_THROTTLE_MS = 2000;
+
+constexpr double RAD_TO_DEG = 57.29577951308232;
+
+/// Render a JointState's name list for a log line.
+std::string joinNames(const std::vector<std::string> & names)
+{
+  std::string joined;
+  for (const std::string & name : names) {
+    if (!joined.empty()) {
+      joined += ", ";
+    }
+    joined += name;
+  }
+  return joined;
+}
 
 /// Reinterpret a flat [x0, y0, x1, y1, ...] parameter as a footprint polygon.
 /// \param flat_xy Flat list of alternating x and y coordinates; an odd length is rejected.
@@ -179,6 +199,7 @@ ArticulatedProjectorNode::CallbackReturn ArticulatedProjectorNode::on_configure(
 
   footprint_marker_pub_ =
     create_publisher<visualization_msgs::msg::MarkerArray>("projected_footprints", MARKER_QUEUE_DEPTH);
+  path_pub_ = create_publisher<nav_msgs::msg::Path>("projected_path", MARKER_QUEUE_DEPTH);
 
   RCLCPP_INFO(
     get_logger(),
@@ -193,6 +214,7 @@ ArticulatedProjectorNode::CallbackReturn ArticulatedProjectorNode::on_activate(c
 {
   (void)state;
   footprint_marker_pub_->on_activate();
+  path_pub_->on_activate();
   RCLCPP_INFO(get_logger(), "activated");
   return CallbackReturn::SUCCESS;
 }
@@ -201,6 +223,7 @@ ArticulatedProjectorNode::CallbackReturn ArticulatedProjectorNode::on_deactivate
 {
   (void)state;
   footprint_marker_pub_->on_deactivate();
+  path_pub_->on_deactivate();
   RCLCPP_INFO(get_logger(), "deactivated");
   return CallbackReturn::SUCCESS;
 }
@@ -211,11 +234,13 @@ ArticulatedProjectorNode::CallbackReturn ArticulatedProjectorNode::on_cleanup(co
   joint_state_sub_.reset();
   cmd_vel_sub_.reset();
   footprint_marker_pub_.reset();
+  path_pub_.reset();
   projector_.reset();
   {
     const std::lock_guard<std::mutex> lock(state_mutex_);
     articulation_angle_rad_ = 0.0;
     last_projection_.clear();
+    articulation_angle_seen_.store(false);
   }
   RCLCPP_INFO(get_logger(), "cleaned up");
   return CallbackReturn::SUCCESS;
@@ -237,6 +262,13 @@ void ArticulatedProjectorNode::onJointState(const sensor_msgs::msg::JointState &
 {
   const auto joint = std::find(msg.name.begin(), msg.name.end(), params_.articulation_joint_name);
   if (msg.name.end() == joint) {
+    RCLCPP_INFO_THROTTLE(
+      get_logger(),
+      *get_clock(),
+      LOG_THROTTLE_MS,
+      "joint '%s' is not in this JointState; it names [%s]",
+      params_.articulation_joint_name.c_str(),
+      joinNames(msg.name).c_str());
     return;
   }
 
@@ -248,8 +280,29 @@ void ArticulatedProjectorNode::onJointState(const sensor_msgs::msg::JointState &
     return;
   }
 
-  const std::lock_guard<std::mutex> lock(state_mutex_);
-  articulation_angle_rad_ = msg.position[index];
+  const double angle_rad = msg.position[index];
+  {
+    const std::lock_guard<std::mutex> lock(state_mutex_);
+    articulation_angle_rad_ = angle_rad;
+  }
+
+  if (!articulation_angle_seen_.exchange(true)) {
+    RCLCPP_INFO(
+      get_logger(),
+      "first articulation angle from joint '%s' (index %zu of %zu): %.4f rad (%.2f deg)",
+      params_.articulation_joint_name.c_str(),
+      index,
+      msg.name.size(),
+      angle_rad,
+      angle_rad * RAD_TO_DEG);
+  }
+  RCLCPP_INFO_THROTTLE(
+    get_logger(),
+    *get_clock(),
+    LOG_THROTTLE_MS,
+    "articulation angle: %.4f rad (%.2f deg)",
+    angle_rad,
+    angle_rad * RAD_TO_DEG);
 }
 
 void ArticulatedProjectorNode::onCmdVel(const geometry_msgs::msg::TwistStamped & msg)
@@ -264,6 +317,10 @@ void ArticulatedProjectorNode::onCmdVel(const geometry_msgs::msg::TwistStamped &
   const ArticulatedVehicleState commanded = model.bodyVelocityToVehicleState(msg.twist.linear.x, msg.twist.angular.z);
 
   std::unique_ptr<visualization_msgs::msg::MarkerArray> markers;
+  std::unique_ptr<nav_msgs::msg::Path> path;
+  double measured_angle_rad = 0.0;
+  double final_angle_rad = 0.0;
+  double final_yaw_rate_rad_s = 0.0;
   {
     const std::lock_guard<std::mutex> lock(state_mutex_);
     last_projection_ = projector_->project(
@@ -275,9 +332,39 @@ void ArticulatedProjectorNode::onCmdVel(const geometry_msgs::msg::TwistStamped &
       params_.projector.articulation_rate_rad_s,
       msg.twist.linear.x);
     markers = produceProjectedFootprintMarkers(last_projection_);
+    path = produceProjectedPath(last_projection_);
+    measured_angle_rad = articulation_angle_rad_;
+    if (!last_projection_.empty()) {
+      final_angle_rad = last_projection_.back().articulation_angle_rad;
+      final_yaw_rate_rad_s = last_projection_.back().angular_velocity_rad_s;
+    }
   }
 
+  if (!articulation_angle_seen_.load()) {
+    RCLCPP_INFO_THROTTLE(
+      get_logger(),
+      *get_clock(),
+      LOG_THROTTLE_MS,
+      "projecting from articulation angle 0.0 rad: no JointState naming '%s' has arrived yet",
+      params_.articulation_joint_name.c_str());
+  }
+  RCLCPP_INFO_THROTTLE(
+    get_logger(),
+    *get_clock(),
+    LOG_THROTTLE_MS,
+    "cmd_vel v=%.3f m/s w=%.3f rad/s -> articulation measured %.4f, target %.4f, reached %.4f rad "
+    "after %.2fs at %.3f rad/s (final yaw rate %.4f rad/s)",
+    msg.twist.linear.x,
+    msg.twist.angular.z,
+    measured_angle_rad,
+    commanded.articulation_angle_rad,
+    final_angle_rad,
+    params_.projection.horizon_s,
+    params_.projector.articulation_rate_rad_s,
+    final_yaw_rate_rad_s);
+
   footprint_marker_pub_->publish(std::move(markers));
+  path_pub_->publish(std::move(path));
 }
 
 std::unique_ptr<visualization_msgs::msg::MarkerArray> ArticulatedProjectorNode::produceProjectedFootprintMarkers(
@@ -313,6 +400,27 @@ std::unique_ptr<visualization_msgs::msg::MarkerArray> ArticulatedProjectorNode::
   }
 
   return markers;
+}
+
+std::unique_ptr<nav_msgs::msg::Path> ArticulatedProjectorNode::produceProjectedPath(
+  const std::vector<ArticulatedProjectedState> & projection) const
+{
+  auto path = std::make_unique<nav_msgs::msg::Path>();
+  path->header.frame_id = params_.visualization.frame_id;
+  path->header.stamp = now();
+  path->poses.reserve(projection.size());
+
+  for (const ArticulatedProjectedState & sample : projection) {
+    geometry_msgs::msg::PoseStamped pose;
+    pose.header = path->header;
+    pose.pose.position.x = sample.pose.x;
+    pose.pose.position.y = sample.pose.y;
+    pose.pose.orientation.z = std::sin(sample.pose.theta / 2.0);
+    pose.pose.orientation.w = std::cos(sample.pose.theta / 2.0);
+    path->poses.push_back(pose);
+  }
+
+  return path;
 }
 
 }  // namespace polymath::kinematics::ros2

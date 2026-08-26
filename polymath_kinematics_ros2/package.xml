@@ -13,6 +13,7 @@
 
   <depend>geometry_msgs</depend>
   <depend>lifecycle_msgs</depend>
+  <depend>nav_msgs</depend>
   <depend>polymath_kinematics</depend>
   <depend>rclcpp</depend>
   <depend>rclcpp_components</depend>

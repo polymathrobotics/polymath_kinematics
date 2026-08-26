@@ -47,6 +47,7 @@ target_link_libraries(
     rclcpp_lifecycle::rclcpp_lifecycle
     ${geometry_msgs_TARGETS}
     ${lifecycle_msgs_TARGETS}
+    ${nav_msgs_TARGETS}
     ${sensor_msgs_TARGETS}
     ${std_msgs_TARGETS}
     ${visualization_msgs_TARGETS}
@@ -58,7 +59,7 @@ target_link_libraries(
 # Upstream rclcpp_components, not polymath_core's rclcpp_lifecycle_components wrapper: that
 # package lives in polymath_core and is unavailable when this repo builds standalone in its own CI.
 rclcpp_components_register_node(${PROJECT_NAME}
-  PLUGIN "polymath::kinematics::ros2::ArticulatedProjector"
+  PLUGIN "polymath::kinematics::ros2::ArticulatedProjectorNode"
   EXECUTABLE articulated_projector
 )
 
