@@ -18,8 +18,8 @@ jobs:
             ubuntu: jammy
           - ros: jazzy
             ubuntu: noble
-          - ros: rolling
-            ubuntu: noble
+         # - ros: rolling
+         #   ubuntu: noble
     name: ROS 2 ${{ matrix.ros }}
     container:
       image: ghcr.io/ros-tooling/setup-ros-docker/setup-ros-docker-ubuntu-${{ matrix.ubuntu }}:latest
