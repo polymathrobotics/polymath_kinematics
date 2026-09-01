@@ -19,7 +19,7 @@ import numpy as np
 import pytest
 
 from polymath_kinematics import AxleReference, DifferentialDriveModel, rectangle_footprint
-from polymath_kinematics.explorer import (
+from polymath_kinematics_python_tools.explorer import (
     KINEMATIC_EQUATIONS,
     LATTICE_CONFIG,
     generate_lattice_articulated,
