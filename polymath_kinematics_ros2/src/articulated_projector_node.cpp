@@ -28,7 +28,7 @@
 #include "geometry_msgs/msg/point.hpp"
 #include "geometry_msgs/msg/pose_stamped.hpp"
 #include "lifecycle_msgs/msg/state.hpp"
-#include "magic_enum/magic_enum.hpp"
+#include "magic_enum.hpp"
 #include "rclcpp_components/register_node_macro.hpp"
 #include "std_msgs/msg/color_rgba.hpp"
 
